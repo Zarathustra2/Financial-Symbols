@@ -3,10 +3,11 @@ name = "financial_symbols"
 version = "0.1.0"
 edition = "2021"
 authors = ["Dario <dario.heinisch@gmail.com>"]
-description = ""
+description = "Stock symbols & option contract parsing which implement the Copy trait"
 license = "MIT"
-documentation = "https://docs.rs/resizing-vec/latest/financial_symbols/"
+documentation = "https://docs.rs/financial_symbols/latest/financial_symbols/"
 exclude = ["/ci", "images/", ".*", "/test_data"]
+keywords = ["options", "symbol", "stock"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -14,3 +15,15 @@ exclude = ["/ci", "images/", ".*", "/test_data"]
 anyhow = "1.0.75"
 chrono = "0.4.31"
 rust_decimal = "1.33.1"
+
+[dependencies.serde]
+version = "1"
+optional = true
+
+[dependencies.postgres-types]
+version = "0.2.6"
+optional = true
+
+[features]
+serde = ["dep:serde"]
+postgres = ["dep:postgres-types"]

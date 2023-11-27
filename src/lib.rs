@@ -108,6 +108,13 @@ pub enum OptionType {
 }
 
 impl OptionType {
+    pub fn as_str(&self) -> &str {
+        match self {
+            OptionType::Call => "call",
+            OptionType::Put => "put",
+        }
+    }
+
     pub fn is_call(&self) -> bool {
         self == &OptionType::Call
     }
@@ -134,8 +141,8 @@ impl TryFrom<&str> for OptionType {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "C" | "call" => Ok(Self::Call),
-            "P" | "put" => Ok(Self::Put),
+            "C" | "c" | "call" => Ok(Self::Call),
+            "P" | "p" | "put" => Ok(Self::Put),
             _ => bail!("{} is not a valid option type", value),
         }
     }
@@ -325,6 +332,171 @@ impl OptionContract {
             bytes,
             len,
         })
+    }
+}
+
+#[cfg(feature = "serde")]
+mod serde_feature {
+    use super::*;
+    use serde::{
+        de::{self, Visitor},
+        Deserialize, Deserializer, Serialize, Serializer,
+    };
+
+    struct TickerVisitor;
+
+    impl<'de> Visitor<'de> for TickerVisitor {
+        type Value = Ticker;
+
+        #[inline]
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("A ticker should be a string")
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            v.try_into().map_err(E::custom)
+        }
+    }
+
+    impl Serialize for Ticker {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_str(self.as_str())
+        }
+    }
+
+    impl<'de> Deserialize<'de> for Ticker {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_str(TickerVisitor)
+        }
+    }
+
+    struct OptionTypeVisitor;
+
+    impl<'de> Visitor<'de> for OptionTypeVisitor {
+        type Value = OptionType;
+
+        #[inline]
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("An option type should be a string")
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            v.try_into().map_err(E::custom)
+        }
+    }
+
+    impl Serialize for OptionType {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_str(self.as_str())
+        }
+    }
+
+    impl<'de> Deserialize<'de> for OptionType {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_str(OptionTypeVisitor)
+        }
+    }
+
+    struct OptionContractVisitor;
+
+    impl<'de> Visitor<'de> for OptionContractVisitor {
+        type Value = OptionContract;
+
+        #[inline]
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("An option contract should be a string")
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            OptionContract::from_iso_format(v).map_err(E::custom)
+        }
+    }
+
+    impl Serialize for OptionContract {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_str(self.as_str())
+        }
+    }
+
+    impl<'de> Deserialize<'de> for OptionContract {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_str(OptionContractVisitor)
+        }
+    }
+}
+
+#[cfg(feature = "postgres")]
+mod postgres_feature {
+    use super::*;
+    use postgres_types::FromSql;
+
+    impl<'a> FromSql<'a> for Ticker {
+        fn from_sql(
+            ty: &postgres_types::Type,
+            raw: &'a [u8],
+        ) -> Result<Ticker, Box<dyn std::error::Error + Sync + Send>> {
+            let s = <&str as FromSql>::from_sql(ty, raw)?;
+            Ticker::try_from(s).map_err(|err| err.into())
+        }
+
+        fn accepts(ty: &postgres_types::Type) -> bool {
+            <&str as FromSql>::accepts(ty)
+        }
+    }
+
+    impl<'a> FromSql<'a> for OptionType {
+        fn from_sql(
+            ty: &postgres_types::Type,
+            raw: &'a [u8],
+        ) -> Result<OptionType, Box<dyn std::error::Error + Sync + Send>> {
+            let s = <&str as FromSql>::from_sql(ty, raw)?;
+            OptionType::try_from(s).map_err(|err| err.into())
+        }
+
+        fn accepts(ty: &postgres_types::Type) -> bool {
+            <&str as FromSql>::accepts(ty)
+        }
+    }
+
+    impl<'a> FromSql<'a> for OptionContract {
+        fn from_sql(
+            ty: &postgres_types::Type,
+            raw: &'a [u8],
+        ) -> Result<OptionContract, Box<dyn std::error::Error + Sync + Send>> {
+            let s = <&str as FromSql>::from_sql(ty, raw)?;
+            OptionContract::from_iso_format(s).map_err(|err| err.into())
+        }
+
+        fn accepts(ty: &postgres_types::Type) -> bool {
+            <&str as FromSql>::accepts(ty)
+        }
     }
 }
 
