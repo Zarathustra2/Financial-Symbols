@@ -1,0 +1,16 @@
+[package]
+name = "financial_symbols"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dario <dario.heinisch@gmail.com>"]
+description = ""
+license = "MIT"
+documentation = "https://docs.rs/resizing-vec/latest/financial_symbols/"
+exclude = ["/ci", "images/", ".*", "/test_data"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.75"
+chrono = "0.4.31"
+rust_decimal = "1.33.1"
