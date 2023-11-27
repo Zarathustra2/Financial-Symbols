@@ -358,22 +358,22 @@ impl OptionContract {
         let pre_fix_zeros = 8 - post_fix_zeros - (decimal_places);
 
         for _ in 0..pre_fix_zeros {
-            iso_bytes[len] = '0' as u8;
+            iso_bytes[len] = b'0';
             len += 1;
         }
 
-        for i in 0..whole_part_idx {
-            iso_bytes[len] = whole_part[i];
+        for char in whole_part.iter().take(whole_part_idx) {
+            iso_bytes[len] = *char;
             len += 1;
         }
 
-        for i in 0..decimal_part_idx {
-            iso_bytes[len] = decimal_part[i];
+        for char in decimal_part.iter().take(decimal_part_idx) {
+            iso_bytes[len] = *char;
             len += 1;
         }
 
         for _ in 0..post_fix_zeros {
-            iso_bytes[len] = '0' as u8;
+            iso_bytes[len] = b'0';
             len += 1;
         }
 
