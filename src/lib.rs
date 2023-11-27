@@ -129,8 +129,8 @@ impl TryFrom<char> for OptionType {
 
     fn try_from(value: char) -> Result<Self, Self::Error> {
         match value {
-            'C' => Ok(OptionType::Call),
-            'P' => Ok(OptionType::Put),
+            'C' | 'c' => Ok(OptionType::Call),
+            'P' | 'p' => Ok(OptionType::Put),
             _ => bail!("{value} is not a valid option type"),
         }
     }
@@ -348,7 +348,6 @@ mod serde_feature {
     impl<'de> Visitor<'de> for TickerVisitor {
         type Value = Ticker;
 
-        #[inline]
         fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.write_str("A ticker should be a string")
         }
@@ -384,7 +383,6 @@ mod serde_feature {
     impl<'de> Visitor<'de> for OptionTypeVisitor {
         type Value = OptionType;
 
-        #[inline]
         fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.write_str("An option type should be a string")
         }
@@ -420,7 +418,6 @@ mod serde_feature {
     impl<'de> Visitor<'de> for OptionContractVisitor {
         type Value = OptionContract;
 
-        #[inline]
         fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.write_str("An option contract should be a string")
         }
@@ -455,13 +452,12 @@ mod serde_feature {
 #[cfg(feature = "postgres")]
 mod postgres_feature {
     use super::*;
-    use postgres_types::FromSql;
+    use postgres_types::{private::BytesMut, to_sql_checked, FromSql, IsNull, ToSql, Type};
+
+    type SqlErr = Box<dyn std::error::Error + Sync + Send>;
 
     impl<'a> FromSql<'a> for Ticker {
-        fn from_sql(
-            ty: &postgres_types::Type,
-            raw: &'a [u8],
-        ) -> Result<Ticker, Box<dyn std::error::Error + Sync + Send>> {
+        fn from_sql(ty: &postgres_types::Type, raw: &'a [u8]) -> Result<Ticker, SqlErr> {
             let s = <&str as FromSql>::from_sql(ty, raw)?;
             Ticker::try_from(s).map_err(|err| err.into())
         }
@@ -471,11 +467,26 @@ mod postgres_feature {
         }
     }
 
+    impl ToSql for Ticker {
+        fn to_sql(&self, ty: &Type, w: &mut BytesMut) -> Result<IsNull, SqlErr>
+        where
+            Self: Sized,
+        {
+            <&str as ToSql>::to_sql(&self.as_str(), ty, w)
+        }
+
+        fn accepts(ty: &postgres_types::Type) -> bool
+        where
+            Self: Sized,
+        {
+            <&str as FromSql>::accepts(ty)
+        }
+
+        to_sql_checked!();
+    }
+
     impl<'a> FromSql<'a> for OptionType {
-        fn from_sql(
-            ty: &postgres_types::Type,
-            raw: &'a [u8],
-        ) -> Result<OptionType, Box<dyn std::error::Error + Sync + Send>> {
+        fn from_sql(ty: &Type, raw: &'a [u8]) -> Result<OptionType, SqlErr> {
             let s = <&str as FromSql>::from_sql(ty, raw)?;
             OptionType::try_from(s).map_err(|err| err.into())
         }
@@ -485,11 +496,26 @@ mod postgres_feature {
         }
     }
 
+    impl ToSql for OptionType {
+        fn to_sql(&self, ty: &Type, w: &mut BytesMut) -> Result<IsNull, SqlErr>
+        where
+            Self: Sized,
+        {
+            <&str as ToSql>::to_sql(&self.as_str(), ty, w)
+        }
+
+        fn accepts(ty: &postgres_types::Type) -> bool
+        where
+            Self: Sized,
+        {
+            <&str as FromSql>::accepts(ty)
+        }
+
+        to_sql_checked!();
+    }
+
     impl<'a> FromSql<'a> for OptionContract {
-        fn from_sql(
-            ty: &postgres_types::Type,
-            raw: &'a [u8],
-        ) -> Result<OptionContract, Box<dyn std::error::Error + Sync + Send>> {
+        fn from_sql(ty: &Type, raw: &'a [u8]) -> Result<OptionContract, SqlErr> {
             let s = <&str as FromSql>::from_sql(ty, raw)?;
             OptionContract::from_iso_format(s).map_err(|err| err.into())
         }
@@ -497,6 +523,24 @@ mod postgres_feature {
         fn accepts(ty: &postgres_types::Type) -> bool {
             <&str as FromSql>::accepts(ty)
         }
+    }
+
+    impl ToSql for OptionContract {
+        fn to_sql(&self, ty: &Type, w: &mut BytesMut) -> Result<IsNull, SqlErr>
+        where
+            Self: Sized,
+        {
+            <&str as ToSql>::to_sql(&self.as_str(), ty, w)
+        }
+
+        fn accepts(ty: &Type) -> bool
+        where
+            Self: Sized,
+        {
+            <&str as FromSql>::accepts(ty)
+        }
+
+        to_sql_checked!();
     }
 }
 

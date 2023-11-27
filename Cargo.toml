@@ -3,11 +3,12 @@ name = "financial_symbols"
 version = "0.1.0"
 edition = "2021"
 authors = ["Dario <dario.heinisch@gmail.com>"]
-description = "Stock symbols & option contract parsing which implement the Copy trait"
+description = "Stock symbols & option contracts structs which implement the Copy trait"
 license = "MIT"
 documentation = "https://docs.rs/financial_symbols/latest/financial_symbols/"
 exclude = ["/ci", "images/", ".*", "/test_data"]
 keywords = ["options", "symbol", "stock"]
+categories = ["finance", "encoding", "data-structures"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
