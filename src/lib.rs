@@ -292,111 +292,94 @@ impl OptionContract {
         )
     }
 
-    // TODO: This is quite slow
     pub fn from_dx_format(s: &str) -> Result<Self, Error> {
-        let mut strike: [u8; STRIKE_LENGTH] = [0u8; STRIKE_LENGTH];
-        let mut strike_length = 0;
-        let mut ot_type: Option<OptionType> = None;
-        let mut ticker_bytes = [0u8; TICKER_LENGTH];
-        let mut date_chars_seen = 0;
+        let mut numbers_seen = 0;
+        let mut option_type_seen = false;
 
-        let mut year = 0;
-        let mut month = 0;
-        let mut day = 0;
+        let mut iso_bytes: [u8; 30] = [0u8; 30];
+        let mut len = 0;
+        let mut idx_offset = 0;
 
-        let mut chars_seen = 0;
-        let mut ticker_len = 0;
+        let mut whole_part_idx = 0;
+        let mut whole_part = [0u8; 5];
+        let mut is_decimal_part = false;
 
-        for (idx, char) in s.chars().rev().enumerate() {
-            if idx == s.len() - 1 {
+        let mut decimal_part_idx = 0;
+        let mut decimal_part = [0u8; 3];
+
+        let mut decimal_places = 0;
+
+        for (idx, c) in s.chars().enumerate() {
+            if idx == 0 {
+                idx_offset += 1;
                 continue;
             }
 
-            if ot_type.is_none() {
-                match char {
-                    'C' => ot_type = Some(OptionType::Call),
-                    'P' => ot_type = Some(OptionType::Put),
-                    _ => {
-                        strike[idx] = char as u8;
-                        strike_length += 1
+            if numbers_seen >= 6 {
+                if option_type_seen {
+                    if c == '.' {
+                        is_decimal_part = true;
+                        continue;
                     }
+                    if is_decimal_part {
+                        decimal_part[decimal_part_idx] = c as u8;
+                        decimal_part_idx += 1;
+                    } else {
+                        whole_part[whole_part_idx] = c as u8;
+                        whole_part_idx += 1;
+                    }
+
+                    decimal_places += 1;
+                } else {
+                    if c == 'C' || c == 'P' {
+                        option_type_seen = true;
+                    }
+                    iso_bytes[idx - idx_offset] = c as u8;
+
+                    len += 1;
                 }
-            } else if date_chars_seen == 6 {
-                if ticker_len == 0 {
-                    ticker_len = s.len() - chars_seen - 1;
-                }
-                ticker_bytes[s.len() - chars_seen - 2] = char as u8;
             } else {
-                const RADIX: u32 = 10;
-                let i = char
-                    .to_digit(RADIX)
-                    .ok_or_else(|| anyhow!("Failed to convert {char} to digit"))?
-                    as i32;
-
-                match date_chars_seen {
-                    0 => day += i,
-                    1 => day += 10 * i,
-                    2 => month += i,
-                    3 => month += 10 * i,
-                    4 => year += i,
-                    5 => year += 10 * i,
-                    _ => bail!("Should not happen, report upstream Char {char}"),
+                if c.is_numeric() {
+                    numbers_seen += 1;
                 }
-
-                date_chars_seen += 1;
+                iso_bytes[idx - idx_offset] = c as u8;
+                len += 1;
             }
-
-            chars_seen += 1;
         }
 
-        let strike = Decimal::from_str(unsafe {
-            let data = strike.get_unchecked_mut(..strike_length);
-            data.reverse();
-            from_utf8_unchecked(data)
-        })?;
+        let post_fix_zeros = match decimal_part_idx {
+            0 => 3,
+            1 => 2,
+            2 => 1,
+            3 => 0,
+            _ => panic!("Should not happen, report upstream"),
+        };
 
-        let ot_type = ot_type
-            .ok_or_else(|| anyhow!("OptionType has not been found in the given contract"))?;
+        let pre_fix_zeros = 8 - post_fix_zeros - (decimal_places);
 
-        let expiry = NaiveDate::from_ymd_opt(2000 + year, month.try_into()?, day.try_into()?)
-            .ok_or_else(|| {
-                anyhow!(
-                    "Failed to construct expiry from year {}, month {} & day {}",
-                    year,
-                    month,
-                    day
-                )
-            })?;
-
-        let ticker = Ticker::from_raw(ticker_bytes, ticker_len);
-
-        let mut strike_s = format!("{}", Decimal::round(&(strike * Decimal::ONE_THOUSAND)));
-        while strike_s.len() < 8 {
-            strike_s = format!("0{}", strike_s);
+        for _ in 0..pre_fix_zeros {
+            iso_bytes[len] = '0' as u8;
+            len += 1;
         }
 
-        let expiry_s = expiry.format("%y%m%d");
-
-        let opt_s = if ot_type.is_call() { "C" } else { "P" };
-
-        let iso_opt_symbol = format!("{}{}{}{}", ticker, expiry_s, opt_s, strike_s);
-
-        let contract_bytes = iso_opt_symbol.as_bytes();
-        let mut bytes = [0u8; CONTRACT_LENGTH];
-        let len = contract_bytes.len();
-
-        for (idx, x) in contract_bytes.iter().enumerate() {
-            bytes[idx] = *x;
+        for i in 0..whole_part_idx {
+            iso_bytes[len] = whole_part[i];
+            len += 1;
         }
 
-        Ok(Self {
-            ticker,
-            ot_type,
-            expiry,
-            strike,
-            bytes,
-            len,
-        })
+        for i in 0..decimal_part_idx {
+            iso_bytes[len] = decimal_part[i];
+            len += 1;
+        }
+
+        for _ in 0..post_fix_zeros {
+            iso_bytes[len] = '0' as u8;
+            len += 1;
+        }
+
+        let s = unsafe { from_utf8_unchecked(iso_bytes.get_unchecked(..(len))) };
+
+        Self::from_iso_format(s)
     }
 
     /// Parses an option contract in the normal iso format.
