@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use anyhow::{anyhow, bail, Error};
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
@@ -5,7 +7,13 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::str::{from_utf8_unchecked, FromStr};
 
-const TICKER_LENGTH: usize = 7;
+// The maximum length of a stock ticker.
+// According to the NYSE specifications (https://www.nyse.com/publicdocs/nyse/data/NYSE_Symbology_Spec_v1.0c.pdf)
+// it is reserving 16 chars for future growth.
+//
+// We are limitting it for now to 8 since the longest ticker symbol
+// is 5. It is 6 if you use `.` for A/B stocks such as CWEN.A
+const TICKER_LENGTH: usize = 8;
 
 #[derive(Clone, Copy)]
 pub struct Ticker {
@@ -108,17 +116,56 @@ pub enum OptionType {
 }
 
 impl OptionType {
-    pub fn as_str(&self) -> &str {
+    /// Returns the string value of the enum
+    ///
+    /// # Examples
+    /// ```
+    /// use financial_symbols::OptionType;
+    /// assert_eq!(OptionType::Call.as_str(),  "call");
+    /// assert_eq!(OptionType::Put.as_str(),  "put");
+    /// ```
+    pub const fn as_str(&self) -> &str {
         match self {
             OptionType::Call => "call",
             OptionType::Put => "put",
         }
     }
 
+    /// Returns a 1 char string value of the enum
+    ///
+    /// # Examples
+    /// ```
+    /// use financial_symbols::OptionType;
+    /// assert_eq!(OptionType::Call.as_short_str(),  "c");
+    /// assert_eq!(OptionType::Put.as_short_str(),  "p");
+    /// ```
+    pub const fn as_short_str(&self) -> &str {
+        match self {
+            OptionType::Call => "c",
+            OptionType::Put => "p",
+        }
+    }
+
+    /// Returns true if it is a call
+    ///
+    /// # Examples
+    /// ```
+    /// use financial_symbols::OptionType;
+    /// assert!(OptionType::Call.is_call());
+    /// assert!(!OptionType::Put.is_call());
+    /// ```
     pub fn is_call(&self) -> bool {
         self == &OptionType::Call
     }
 
+    /// Returns true if it is a put
+    ///
+    /// # Examples
+    /// ```
+    /// use financial_symbols::OptionType;
+    /// assert!(!OptionType::Call.is_put());
+    /// assert!(OptionType::Put.is_put());
+    /// ```
     pub fn is_put(&self) -> bool {
         !self.is_call()
     }
@@ -231,6 +278,8 @@ impl OptionContract {
         self.ot_type.is_put()
     }
 
+    /// Returns the contract in iso format.
+    /// See [`from_iso_format`](#method.from_iso_format)
     pub fn as_str(&self) -> &str {
         unsafe { from_utf8_unchecked(self.bytes.get_unchecked(..self.len)) }
     }
@@ -239,6 +288,35 @@ impl OptionContract {
 
     // }
 
+    /// Parses an option contract in the normal iso format.
+    ///
+    /// The iso format is defined as:
+    /// \<TICKER\>\<EXPIRY\>\<OPTION_TYPE\>\<STRIKE\>
+    ///
+    /// **TICKER** is the underlying symbol, it consists only of alphabetical chars.
+    /// For instance the ticker `BRK.B` would be represented as `BRKB`
+    ///
+    /// **Expiry** is in the format of `YYMMDD`. An expiration of `2023-12-14` would be represented
+    /// as `231214`
+    ///
+    /// **OPTION_TYPE** is a single char which is either `C` or `P`
+    ///
+    /// **STRIKE** is the strike of the contract multiplied by 1,000.
+    /// It will always have a length of 8 chars. If it has less than 8 chars
+    /// it will be prefixed with `0` until it has 8 chars.
+    ///
+    /// # Examples
+    /// ```
+    /// use financial_symbols::{OptionContract, OptionType};
+    /// use rust_decimal::Decimal;
+    /// use chrono::NaiveDate;
+    /// use std::str::FromStr;
+    /// let contract = OptionContract::from_iso_format("SPXW231127C03850000").unwrap();
+    /// assert_eq!(contract.ticker.as_str(), "SPXW");
+    /// assert_eq!(contract.ot_type, OptionType::Call);
+    /// assert_eq!(contract.expiry, NaiveDate::from_str("2023-11-27").unwrap());
+    /// assert_eq!(contract.strike, Decimal::from(3850));
+    /// ```
     pub fn from_iso_format(s: &str) -> Result<Self, Error> {
         if s.len() > CONTRACT_LENGTH {
             bail!(
