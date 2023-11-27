@@ -7,7 +7,7 @@ use std::str::{from_utf8_unchecked, FromStr};
 
 const TICKER_LENGTH: usize = 7;
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy)]
 pub struct Ticker {
     bytes: [u8; TICKER_LENGTH],
     len: usize,
@@ -38,6 +38,26 @@ impl Debug for Ticker {
 impl Hash for Ticker {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.bytes.hash(state);
+    }
+}
+
+impl PartialEq for Ticker {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes
+    }
+}
+
+impl PartialOrd for Ticker {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for Ticker {}
+
+impl Ord for Ticker {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.bytes.cmp(&other.bytes)
     }
 }
 
@@ -352,6 +372,13 @@ mod tests {
             assert_eq!(contract.ticker.as_str(), splits[1]);
             assert_eq!(contract.strike, Decimal::from_str(splits[2]).unwrap());
             assert_eq!(contract.ot_type, OptionType::try_from(splits[3]).unwrap());
+
+            match splits[3] {
+                "call" => assert!(contract.is_call()),
+                "put" => assert!(contract.is_put()),
+                other => panic!("{other} is not a valid option type, bad test data?"),
+            }
+
             assert_eq!(contract.expiry, NaiveDate::from_str(splits[4]).unwrap());
         }
     }
