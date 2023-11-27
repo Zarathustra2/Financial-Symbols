@@ -183,7 +183,7 @@ impl PartialEq for OptionContract {
 
 impl PartialOrd for OptionContract {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.bytes.partial_cmp(&other.bytes)
+        Some(self.cmp(other))
     }
 }
 
