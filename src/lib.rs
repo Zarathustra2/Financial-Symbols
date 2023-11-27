@@ -85,9 +85,7 @@ impl TryFrom<&str> for Ticker {
         let mut bytes = [0u8; TICKER_LENGTH];
         let len = ticker_bytes.len();
 
-        for (idx, x) in ticker_bytes.iter().enumerate() {
-            bytes[idx] = *x;
-        }
+        bytes[..len].copy_from_slice(&ticker_bytes[..len]);
 
         Ok(Self::from_raw(bytes, len))
     }
@@ -284,9 +282,122 @@ impl OptionContract {
         unsafe { from_utf8_unchecked(self.bytes.get_unchecked(..self.len)) }
     }
 
-    // pub fn from_dx_format(&self, s: &str) -> Self {
+    pub fn as_dx_feed_symbol(&self) -> String {
+        format!(
+            ".{}{}{}{}",
+            self.ticker.as_str(),
+            self.expiry.format("%y%m%d"),
+            if self.is_call() { "C" } else { "P" },
+            self.strike
+        )
+    }
 
-    // }
+    // TODO: This is quite slow
+    pub fn from_dx_format(s: &str) -> Result<Self, Error> {
+        let mut strike: [u8; STRIKE_LENGTH] = [0u8; STRIKE_LENGTH];
+        let mut strike_length = 0;
+        let mut ot_type: Option<OptionType> = None;
+        let mut ticker_bytes = [0u8; TICKER_LENGTH];
+        let mut date_chars_seen = 0;
+
+        let mut year = 0;
+        let mut month = 0;
+        let mut day = 0;
+
+        let mut chars_seen = 0;
+        let mut ticker_len = 0;
+
+        for (idx, char) in s.chars().rev().enumerate() {
+            if idx == s.len() - 1 {
+                continue;
+            }
+
+            if ot_type.is_none() {
+                match char {
+                    'C' => ot_type = Some(OptionType::Call),
+                    'P' => ot_type = Some(OptionType::Put),
+                    _ => {
+                        strike[idx] = char as u8;
+                        strike_length += 1
+                    }
+                }
+            } else if date_chars_seen == 6 {
+                if ticker_len == 0 {
+                    ticker_len = s.len() - chars_seen - 1;
+                }
+                ticker_bytes[s.len() - chars_seen - 2] = char as u8;
+            } else {
+                const RADIX: u32 = 10;
+                let i = char
+                    .to_digit(RADIX)
+                    .ok_or_else(|| anyhow!("Failed to convert {char} to digit"))?
+                    as i32;
+
+                match date_chars_seen {
+                    0 => day += i,
+                    1 => day += 10 * i,
+                    2 => month += i,
+                    3 => month += 10 * i,
+                    4 => year += i,
+                    5 => year += 10 * i,
+                    _ => bail!("Should not happen, report upstream Char {char}"),
+                }
+
+                date_chars_seen += 1;
+            }
+
+            chars_seen += 1;
+        }
+
+        let strike = Decimal::from_str(unsafe {
+            let data = strike.get_unchecked_mut(..strike_length);
+            data.reverse();
+            from_utf8_unchecked(data)
+        })?;
+
+        let ot_type = ot_type
+            .ok_or_else(|| anyhow!("OptionType has not been found in the given contract"))?;
+
+        let expiry = NaiveDate::from_ymd_opt(2000 + year, month.try_into()?, day.try_into()?)
+            .ok_or_else(|| {
+                anyhow!(
+                    "Failed to construct expiry from year {}, month {} & day {}",
+                    year,
+                    month,
+                    day
+                )
+            })?;
+
+        let ticker = Ticker::from_raw(ticker_bytes, ticker_len);
+
+        let mut strike_s = format!("{}", Decimal::round(&(strike * Decimal::ONE_THOUSAND)));
+        while strike_s.len() < 8 {
+            strike_s = format!("0{}", strike_s);
+        }
+
+        let expiry_s = expiry.format("%y%m%d");
+
+        let opt_s = if ot_type.is_call() { "C" } else { "P" };
+
+        let iso_opt_symbol = format!("{}{}{}{}", ticker, expiry_s, opt_s, strike_s);
+
+        let contract_bytes = iso_opt_symbol.as_bytes();
+        let mut bytes = [0u8; CONTRACT_LENGTH];
+        let len = contract_bytes.len();
+
+        for (idx, x) in contract_bytes.iter().enumerate() {
+            bytes[idx] = *x;
+        }
+
+        Ok(Self {
+            ticker,
+            ot_type,
+            expiry,
+            strike,
+            bytes,
+            len,
+        })
+    }
 
     /// Parses an option contract in the normal iso format.
     ///
@@ -327,7 +438,7 @@ impl OptionContract {
         }
 
         let mut strike: [u8; STRIKE_LENGTH] = [0u8; STRIKE_LENGTH];
-        let mut ot_type = None;
+        let mut ot_type: Option<OptionType> = None;
         let mut ticker_bytes = [0u8; TICKER_LENGTH];
 
         let len = s.len();
@@ -648,6 +759,18 @@ mod tests {
     }
 
     #[test]
+    pub fn can_dx() {
+        let contract = OptionContract::from_dx_format(".PANW250117P256.67").unwrap();
+        assert_eq!(contract.as_str(), "PANW250117P00256670");
+
+        let contract = OptionContract::from_dx_format(".BOAT230120P24").unwrap();
+        assert_eq!(contract.as_str(), "BOAT230120P00024000");
+
+        let contract = OptionContract::from_dx_format(".UPV230421C38").unwrap();
+        assert_eq!(contract.as_str(), "UPV230421C00038000");
+    }
+
+    #[test]
     pub fn can_parse_option_contracts() {
         let file = File::open("./test_data/contracts.csv").unwrap();
         let reader = BufReader::new(file);
@@ -659,9 +782,11 @@ mod tests {
 
             let option_symbol = splits[0];
             let context = format!("Line {idx} contract {option_symbol}");
+
             let contract = OptionContract::from_iso_format(option_symbol)
                 .context(context)
                 .unwrap();
+
             assert_eq!(contract.as_str(), option_symbol);
             assert_eq!(contract.ticker.as_str(), splits[1]);
             assert_eq!(contract.strike, Decimal::from_str(splits[2]).unwrap());
