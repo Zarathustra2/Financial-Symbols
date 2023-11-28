@@ -73,12 +73,15 @@ impl TryFrom<&str> for Ticker {
     type Error = Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        if value.len() > TICKER_LENGTH {
+        let len = value.len();
+        if len > TICKER_LENGTH {
             bail!(
                 "{} has more than {} chars; this is not a valid ticker!",
                 value,
                 TICKER_LENGTH
             );
+        } else if len == 0 {
+            bail!("An empty string is not a valid ticker");
         }
 
         let ticker_bytes = value.as_bytes();
@@ -213,6 +216,7 @@ const EXPIRY_LENGTH: usize = 6;
 const OPTION_TYPE_LENGTH: usize = 1;
 const STRIKE_LENGTH: usize = 8;
 const CONTRACT_LENGTH: usize = TICKER_LENGTH + EXPIRY_LENGTH + OPTION_TYPE_LENGTH + STRIKE_LENGTH;
+const MIN_CONTRACT_LENGTH: usize = 1 + EXPIRY_LENGTH + OPTION_TYPE_LENGTH + STRIKE_LENGTH;
 
 #[derive(Clone, Copy)]
 pub struct OptionContract {
@@ -282,6 +286,15 @@ impl OptionContract {
         unsafe { from_utf8_unchecked(self.bytes.get_unchecked(..self.len)) }
     }
 
+    /// Returns the option symbol in the dx feed format.
+    /// See [`from_dx_feed_symbol`](#method.from_dx_feed_symbol) for more information.
+    /// # Examples
+    /// ```
+    /// use financial_symbols::{OptionContract, OptionType};
+    /// use std::str::FromStr;
+    /// let contract = OptionContract::from_iso_format("SPXW231127C03850000").unwrap();
+    /// assert_eq!(contract.as_dx_feed_symbol(), ".SPXW231127C3850");
+    /// ```
     pub fn as_dx_feed_symbol(&self) -> String {
         format!(
             ".{}{}{}{}",
@@ -292,11 +305,36 @@ impl OptionContract {
         )
     }
 
-    pub fn from_dx_format(s: &str) -> Result<Self, Error> {
+    /// Parses an option contract based on the dx feed format.
+    ///
+    /// The format is based on the option symbols being returned
+    /// by the financial data provider DxFeed. The symbols can
+    /// be found here: https://tools.dxfeed.com/ipf?TYPE=OPTION
+    ///
+    /// # Examples
+    /// ```
+    /// use financial_symbols::{OptionContract, OptionType};
+    /// use rust_decimal::Decimal;
+    /// use chrono::NaiveDate;
+    /// use std::str::FromStr;
+    /// let contract = OptionContract::from_dx_feed_symbol(".SPXW231127C3850").unwrap();
+    /// assert_eq!(contract.ticker.as_str(), "SPXW");
+    /// assert_eq!(contract.ot_type, OptionType::Call);
+    /// assert_eq!(contract.expiry, NaiveDate::from_str("2023-11-27").unwrap());
+    /// assert_eq!(contract.strike, Decimal::from(3850));
+    /// assert_eq!(contract.as_str(), "SPXW231127C03850000");
+    /// ```
+    pub fn from_dx_feed_symbol(s: &str) -> Result<Self, Error> {
+        if s.len() >= CONTRACT_LENGTH {
+            let len = s.len();
+            bail!("Input {s} has {len} chars, this is more than the expected contract length of {CONTRACT_LENGTH}");
+        }
+
         let mut numbers_seen = 0;
         let mut option_type_seen = false;
 
-        let mut iso_bytes: [u8; 30] = [0u8; 30];
+        let mut iso_bytes: [u8; CONTRACT_LENGTH] = [0u8; CONTRACT_LENGTH];
+
         let mut len = 0;
         let mut idx_offset = 0;
 
@@ -311,6 +349,9 @@ impl OptionContract {
 
         for (idx, c) in s.chars().enumerate() {
             if idx == 0 {
+                if c != '.' {
+                    bail!("Expected the option contract to start with '.' but got {c}");
+                }
                 idx_offset += 1;
                 continue;
             }
@@ -322,9 +363,16 @@ impl OptionContract {
                         continue;
                     }
                     if is_decimal_part {
+                        if decimal_part_idx >= 2 {
+                            bail!("Decimal part of the strike has more than 2 places, input {s}");
+                        }
+
                         decimal_part[decimal_part_idx] = c as u8;
                         decimal_part_idx += 1;
                     } else {
+                        if whole_part_idx >= 5 {
+                            bail!("Whole part of the strike has more than 4 places, input {s}");
+                        }
                         whole_part[whole_part_idx] = c as u8;
                         whole_part_idx += 1;
                     }
@@ -355,24 +403,41 @@ impl OptionContract {
             _ => panic!("Should not happen, report upstream"),
         };
 
-        let pre_fix_zeros = 8 - post_fix_zeros - (decimal_places);
+        let pre_fix_zeros = STRIKE_LENGTH - post_fix_zeros - (decimal_places);
 
         for _ in 0..pre_fix_zeros {
+            if len >= CONTRACT_LENGTH {
+                bail!("Input {s} would result in an iso format with more than {CONTRACT_LENGTH} chars");
+            }
+
             iso_bytes[len] = b'0';
             len += 1;
         }
 
+        if whole_part_idx == 0 {
+            bail!("Strike is missing");
+        }
+
         for char in whole_part.iter().take(whole_part_idx) {
+            if len >= CONTRACT_LENGTH {
+                bail!("Input {s} would result in an iso format with more than {CONTRACT_LENGTH} chars");
+            }
             iso_bytes[len] = *char;
             len += 1;
         }
 
         for char in decimal_part.iter().take(decimal_part_idx) {
+            if len >= CONTRACT_LENGTH {
+                bail!("Input {s} would result in an iso format with more than {CONTRACT_LENGTH} chars");
+            }
             iso_bytes[len] = *char;
             len += 1;
         }
 
         for _ in 0..post_fix_zeros {
+            if len >= CONTRACT_LENGTH {
+                bail!("Input {s} would result in an iso format with more than {CONTRACT_LENGTH} chars");
+            }
             iso_bytes[len] = b'0';
             len += 1;
         }
@@ -412,12 +477,16 @@ impl OptionContract {
     /// assert_eq!(contract.strike, Decimal::from(3850));
     /// ```
     pub fn from_iso_format(s: &str) -> Result<Self, Error> {
-        if s.len() > CONTRACT_LENGTH {
+        let len = s.len();
+
+        if len > CONTRACT_LENGTH {
             bail!(
                 "{} has more than {} chars; this is not a valid ISO option contract!",
                 s,
                 CONTRACT_LENGTH
             );
+        } else if len < MIN_CONTRACT_LENGTH {
+            bail!("{s} is not a valid contract, it has a length of {len} but the minimum contract length is {MIN_CONTRACT_LENGTH}");
         }
 
         let mut strike: [u8; STRIKE_LENGTH] = [0u8; STRIKE_LENGTH];
@@ -425,6 +494,7 @@ impl OptionContract {
         let mut ticker_bytes = [0u8; TICKER_LENGTH];
 
         let len = s.len();
+
         let strike_offset = len - STRIKE_LENGTH;
         let option_type_offset = strike_offset - OPTION_TYPE_LENGTH;
         let expiry_offset = option_type_offset - EXPIRY_LENGTH;
@@ -742,19 +812,60 @@ mod tests {
     }
 
     #[test]
-    pub fn can_dx() {
-        let contract = OptionContract::from_dx_format(".PANW250117P256.67").unwrap();
+    pub fn ticker_bad_inputs() {
+        assert!(Ticker::try_from("").is_err());
+        assert!(Ticker::try_from("TOOLONGGGGGGGGGGG").is_err());
+    }
+
+    #[test]
+    pub fn from_dx_format() {
+        let contract = OptionContract::from_dx_feed_symbol(".PANW250117P256.67").unwrap();
         assert_eq!(contract.as_str(), "PANW250117P00256670");
 
-        let contract = OptionContract::from_dx_format(".BOAT230120P24").unwrap();
+        let contract = OptionContract::from_dx_feed_symbol(".BOAT230120P24").unwrap();
         assert_eq!(contract.as_str(), "BOAT230120P00024000");
 
-        let contract = OptionContract::from_dx_format(".UPV230421C38").unwrap();
+        let contract = OptionContract::from_dx_feed_symbol(".UPV230421C38").unwrap();
         assert_eq!(contract.as_str(), "UPV230421C00038000");
     }
 
     #[test]
-    pub fn can_parse_option_contracts() {
+    pub fn from_dx_format_bad_format() {
+        assert!(OptionContract::from_dx_feed_symbol("").is_err());
+        // Missing strike
+        assert!(OptionContract::from_dx_feed_symbol(".UPV230421C").is_err());
+        // Missing option type
+        assert!(OptionContract::from_dx_feed_symbol(".UPV23042138").is_err());
+        // Missing bad expiry
+        assert!(OptionContract::from_dx_feed_symbol(".UPV231321C38").is_err());
+        // Missing starting dot
+        assert!(OptionContract::from_dx_feed_symbol("UPV230421C38").is_err());
+        // Missing ticker
+        assert!(OptionContract::from_dx_feed_symbol(".230421C38").is_err());
+        // ticker to long
+        assert!(OptionContract::from_dx_feed_symbol(".UPVTOOLONG230421C38").is_err());
+    }
+
+    #[test]
+    pub fn from_iso_format_bad_format() {
+        assert!(OptionContract::from_iso_format("").is_err());
+
+        // Missing strike
+        assert!(OptionContract::from_iso_format("UPV230421C").is_err());
+
+        // Malformed strike
+        assert!(OptionContract::from_iso_format("UPV230421C0003800").is_err());
+
+        // Missing ticker
+        assert!(OptionContract::from_iso_format("230421C00038000").is_err());
+        // Bad expiry
+        assert!(OptionContract::from_iso_format("UPV231321C00038000").is_err());
+        // Bad ticker
+        assert!(OptionContract::from_iso_format("UPVWAYTOOLONG230421C00038000").is_err());
+    }
+
+    #[test]
+    pub fn from_iso_format() {
         let file = File::open("./test_data/contracts.csv").unwrap();
         let reader = BufReader::new(file);
 
