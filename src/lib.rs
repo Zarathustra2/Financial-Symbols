@@ -191,7 +191,7 @@ impl TryFrom<&str> for OptionType {
         match value {
             "C" | "c" | "call" => Ok(Self::Call),
             "P" | "p" | "put" => Ok(Self::Put),
-            _ => bail!("{} is not a valid option type", value),
+            _ => bail!("{value} is not a valid option type"),
         }
     }
 }
