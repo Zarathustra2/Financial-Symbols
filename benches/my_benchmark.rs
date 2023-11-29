@@ -1,5 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use financial_symbols::OptionContract;
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use financial_symbols::{OptionContract, Ticker};
 
 fn criterion_iso(c: &mut Criterion) {
     c.bench_function("from_iso_format SPXW231124P04060000", |b| {
@@ -25,6 +25,26 @@ fn criterion_dx(c: &mut Criterion) {
     });
 }
 
+fn criterion_ticker(c: &mut Criterion) {
+    c.bench_function("Ticker::try_from SPXW", |b| {
+        b.iter(|| Ticker::try_from("SPXW"));
+    });
+
+    c.bench_function("Ticker::try_from CWEN.A", |b| {
+        b.iter(|| Ticker::try_from(" CWEN.A"));
+    });
+
+    c.bench_function("Ticker::try_from GREE1", |b| {
+        b.iter(|| Ticker::try_from("GREE1"));
+    });
+
+    c.bench_function("Ticker::try_from A", |b| {
+        b.iter(|| Ticker::try_from("A"));
+    });
+}
+
+criterion_group!(benches_ticker, criterion_ticker);
 criterion_group!(benches_iso, criterion_iso);
 criterion_group!(benches_dx, criterion_dx);
-criterion_main!(benches_iso, benches_dx);
+
+criterion_main!(benches_iso, benches_dx, benches_ticker);

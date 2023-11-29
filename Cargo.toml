@@ -6,7 +6,7 @@ authors = ["Dario <dario.heinisch@gmail.com>"]
 description = "Stock symbols & option contracts structs which implement the Copy trait"
 license = "MIT"
 documentation = "https://docs.rs/financial_symbols/latest/financial_symbols/"
-exclude = ["/ci", "images/", ".*", "/test_data"]
+exclude = ["/ci", "images/", ".*", "/test_data", "benches/"]
 keywords = ["options", "symbol", "stock"]
 categories = ["finance", "encoding", "data-structures"]
 

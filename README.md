@@ -36,6 +36,7 @@ assert_eq!(contract.as_str(), "SPXW231127C03850000");
 
 
 ## Benchmark 
+Tested on Apple M1 Pro 16GB Ram
 ```bash
 from_iso_format SPXW231124P04060000
                         time:   [59.047 ns 59.178 ns 59.319 ns]
