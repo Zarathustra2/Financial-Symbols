@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
-use std::str::{from_utf8_unchecked, FromStr};
+use std::str::from_utf8_unchecked;
 
 // The maximum length of a stock ticker.
 // According to the NYSE specifications (https://www.nyse.com/publicdocs/nyse/data/NYSE_Symbology_Spec_v1.0c.pdf)
@@ -86,7 +86,6 @@ impl TryFrom<&str> for Ticker {
 
         let ticker_bytes = value.as_bytes();
         let mut bytes = [0u8; TICKER_LENGTH];
-        let len = ticker_bytes.len();
 
         bytes[..len].copy_from_slice(&ticker_bytes[..len]);
 
@@ -489,82 +488,80 @@ impl OptionContract {
             bail!("{s} is not a valid contract, it has a length of {len} but the minimum contract length is {MIN_CONTRACT_LENGTH}");
         }
 
-        let mut strike: [u8; STRIKE_LENGTH] = [0u8; STRIKE_LENGTH];
+        let mut strike: u32 = 0;
         let mut ot_type: Option<OptionType> = None;
         let mut ticker_bytes = [0u8; TICKER_LENGTH];
-
-        let len = s.len();
 
         let strike_offset = len - STRIKE_LENGTH;
         let option_type_offset = strike_offset - OPTION_TYPE_LENGTH;
         let expiry_offset = option_type_offset - EXPIRY_LENGTH;
 
-        let mut year = 0;
-        let mut month = 0;
-        let mut day = 0;
+        let mut year: i32 = 0;
+        let mut month: u32 = 0;
+        let mut day: u32 = 0;
 
-        for (idx, char) in s.chars().rev().enumerate() {
+        let contract_bytes = s.as_bytes();
+
+        for (idx, &byte) in contract_bytes.iter().rev().enumerate() {
             let idx = len - 1 - idx;
             if idx >= strike_offset {
-                strike[idx - strike_offset] = if char.is_numeric() {
-                    char as u8
-                } else {
-                    // TODO add index, better error msg
-                    bail!("{char} is not numeric")
-                }
+                let digit = (byte - b'0') as u32;
+                let multiplier = match idx - strike_offset {
+                    7 => 1,
+                    6 => 10,
+                    5 => 100,
+                    4 => 1000,
+                    3 => 10000,
+                    2 => 100000,
+                    1 => 1000000,
+                    0 => 10000000,
+                    _ => bail!("Should not happen"),
+                };
+                strike += digit * multiplier;
             } else if idx == option_type_offset {
-                ot_type = Some(char.try_into()?);
+                ot_type = Some(if byte == 80 {
+                    OptionType::Put
+                } else {
+                    OptionType::Call
+                });
             } else if idx >= expiry_offset {
-                const RADIX: u32 = 10;
-                let i = char
-                    .to_digit(RADIX)
-                    .ok_or_else(|| anyhow!("Failed to convert {char} to digit"))?
-                    as i32;
+                let i = (byte - b'0') as u32;
 
                 match idx - expiry_offset {
                     5 => day += i,
                     4 => day += 10 * i,
                     3 => month += i,
                     2 => month += 10 * i,
-                    1 => year += i,
-                    0 => year += 10 * i,
-                    _ => bail!("Should not happen, report upstream Char {char}"),
+                    1 => year += i as i32,
+                    0 => year += 10 * i as i32,
+                    _ => bail!("Should not happen, report upstream"),
                 }
             } else {
-                // TODO: Check rest is not over TICKER_LENGTH
-                ticker_bytes[idx] = char as u8;
+                ticker_bytes[idx] = byte;
             }
         }
 
-        let strike = Decimal::from_str(unsafe {
-            from_utf8_unchecked(strike.get_unchecked(..STRIKE_LENGTH))
-        })? / Decimal::ONE_THOUSAND;
+        let strike = Decimal::from(strike) / Decimal::ONE_THOUSAND;
 
         let ot_type = ot_type
             .ok_or_else(|| anyhow!("OptionType has not been found in the given contract"))?;
 
-        let expiry = NaiveDate::from_ymd_opt(2000 + year, month.try_into()?, day.try_into()?)
-            .ok_or_else(|| {
-                anyhow!(
-                    "Failed to construct expiry from year {}, month {} & day {}",
-                    year,
-                    month,
-                    day
-                )
-            })?;
+        let expiry = NaiveDate::from_ymd_opt(2000 + year, month, day).ok_or_else(|| {
+            anyhow!(
+                "Failed to construct expiry from year {}, month {} & day {}",
+                year,
+                month,
+                day
+            )
+        })?;
 
         let ticker = Ticker::from_raw(
             ticker_bytes,
             len - STRIKE_LENGTH - EXPIRY_LENGTH - OPTION_TYPE_LENGTH,
         );
 
-        let contract_bytes = s.as_bytes();
         let mut bytes = [0u8; CONTRACT_LENGTH];
-        let len = contract_bytes.len();
-
-        for (idx, x) in contract_bytes.iter().enumerate() {
-            bytes[idx] = *x;
-        }
+        bytes[..len].copy_from_slice(contract_bytes);
 
         Ok(Self {
             ticker,
@@ -792,7 +789,10 @@ mod tests {
     use std::{
         fs::File,
         io::{BufRead, BufReader},
+        time::Instant,
     };
+
+    use std::str::FromStr;
 
     use anyhow::Context;
 
@@ -815,6 +815,18 @@ mod tests {
     pub fn ticker_bad_inputs() {
         assert!(Ticker::try_from("").is_err());
         assert!(Ticker::try_from("TOOLONGGGGGGGGGGG").is_err());
+    }
+
+    #[test]
+    pub fn foo() {
+        // Need proper benchmark
+        let num = Decimal::from_str("256.67").unwrap();
+        for _ in 0..10 {
+            let start = Instant::now();
+            let contract = OptionContract::from_iso_format("PANW250117P00256670").unwrap();
+            assert_eq!(contract.strike, num);
+            println!("Elapsed {}", start.elapsed().as_nanos());
+        }
     }
 
     #[test]
