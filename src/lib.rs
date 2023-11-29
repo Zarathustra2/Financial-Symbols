@@ -505,19 +505,21 @@ impl OptionContract {
         for (idx, &byte) in contract_bytes.iter().rev().enumerate() {
             let idx = len - 1 - idx;
             if idx >= strike_offset {
-                let digit = (byte - b'0') as u32;
-                let multiplier = match idx - strike_offset {
-                    7 => 1,
-                    6 => 10,
-                    5 => 100,
-                    4 => 1000,
-                    3 => 10000,
-                    2 => 100000,
-                    1 => 1000000,
-                    0 => 10000000,
-                    _ => bail!("Should not happen"),
-                };
-                strike += digit * multiplier;
+                if byte != 48 {
+                    let digit = (byte - b'0') as u32;
+                    let multiplier = match idx - strike_offset {
+                        7 => 1,
+                        6 => 10,
+                        5 => 100,
+                        4 => 1000,
+                        3 => 10000,
+                        2 => 100000,
+                        1 => 1000000,
+                        0 => 10000000,
+                        _ => bail!("Should not happen"),
+                    };
+                    strike += digit * multiplier;
+                }
             } else if idx == option_type_offset {
                 ot_type = Some(if byte == 80 {
                     OptionType::Put

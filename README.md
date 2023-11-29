@@ -33,3 +33,28 @@ assert_eq!(contract.strike, Decimal::from(3850));
 let contract = OptionContract::from_dx_feed_symbol(".SPXW231127C3850").unwrap();
 assert_eq!(contract.as_str(), "SPXW231127C03850000");
 ```
+
+
+## Benchmark 
+```bash
+from_iso_format SPXW231124P04060000
+                        time:   [59.047 ns 59.178 ns 59.319 ns]
+                        change: [-0.1926% +0.0473% +0.2973%] (p = 0.72 > 0.05)
+                        No change in performance detected.
+Found 3 outliers among 100 measurements (3.00%)
+  2 (2.00%) high mild
+  1 (1.00%) high severe
+
+from_iso_format TSLA240119C00066670
+                        time:   [74.147 ns 74.391 ns 74.656 ns]
+                        change: [-0.8623% -0.4957% -0.1161%] (p = 0.01 < 0.05)
+                        Change within noise threshold.
+Found 7 outliers among 100 measurements (7.00%)
+  6 (6.00%) high mild
+  1 (1.00%) high severe
+
+from_iso_format A231215C00055000
+                        time:   [55.377 ns 55.555 ns 55.743 ns]
+                        change: [+0.9201% +1.1964% +1.4756%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+```
