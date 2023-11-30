@@ -22,6 +22,26 @@ pub struct Ticker {
 }
 
 impl Ticker {
+    pub const fn from_str_unchecked(s: &str) -> Self {
+        let ticker_bytes = s.as_bytes();
+        let mut bytes = [0u8; TICKER_LENGTH];
+        let len = s.len();
+
+        // TODO: Change to
+        // std::ptr::copy_nonoverlapping(ticker_bytes.as_ptr(), bytes.as_mut_ptr(), len);
+        // once https://github.com/rust-lang/rust/issues/57349 is in.
+        let mut i = 0;
+        loop {
+            if i >= len {
+                break;
+            }
+            bytes[i] = ticker_bytes[i];
+            i += 1;
+        }
+
+        Self::from_raw(bytes, len)
+    }
+
     pub const fn from_raw(bytes: [u8; TICKER_LENGTH], len: usize) -> Self {
         Self { bytes, len }
     }
@@ -501,9 +521,12 @@ impl OptionContract {
         let mut day: u32 = 0;
 
         let contract_bytes = s.as_bytes();
+        let mut bytes = [0u8; CONTRACT_LENGTH];
 
-        for (idx, &byte) in contract_bytes.iter().rev().enumerate() {
-            let idx = len - 1 - idx;
+        let mut idx = 0;
+        loop {
+            let byte = contract_bytes[idx];
+            bytes[idx] = byte;
             if idx >= strike_offset {
                 if byte != 48 {
                     let digit = (byte - b'0') as u32;
@@ -541,6 +564,11 @@ impl OptionContract {
             } else {
                 ticker_bytes[idx] = byte;
             }
+
+            idx += 1;
+            if idx == len {
+                break;
+            }
         }
 
         let strike = Decimal::from(strike) / Decimal::ONE_THOUSAND;
@@ -561,9 +589,6 @@ impl OptionContract {
             ticker_bytes,
             len - STRIKE_LENGTH - EXPIRY_LENGTH - OPTION_TYPE_LENGTH,
         );
-
-        let mut bytes = [0u8; CONTRACT_LENGTH];
-        bytes[..len].copy_from_slice(contract_bytes);
 
         Ok(Self {
             ticker,
@@ -789,6 +814,7 @@ mod postgres_feature {
 mod tests {
 
     use std::{
+        collections::HashSet,
         fs::File,
         io::{BufRead, BufReader},
         time::Instant,
@@ -805,12 +831,24 @@ mod tests {
         let file = File::open("./test_data/tickers.txt").unwrap();
         let reader = BufReader::new(file);
 
+        let mut set_str = HashSet::new();
+        let mut set_ticker = HashSet::new();
+
         for (idx, line) in reader.lines().skip(1).enumerate() {
             let s = line.unwrap();
             let context = format!("Line {idx} ticker {s}");
             let ticker = Ticker::try_from(s.as_str()).context(context).unwrap();
             assert_eq!(ticker.as_str(), s.as_str());
+
+            let ticker_unchecked = Ticker::from_str_unchecked(s.as_str());
+            assert_eq!(ticker_unchecked.as_str(), s.as_str());
+            assert_eq!(ticker_unchecked, ticker);
+
+            set_str.insert(s.to_string());
+            set_ticker.insert(ticker);
         }
+
+        assert_eq!(set_str.len(), set_ticker.len());
     }
 
     #[test]
@@ -883,6 +921,9 @@ mod tests {
         let file = File::open("./test_data/contracts.csv").unwrap();
         let reader = BufReader::new(file);
 
+        let mut set_str = HashSet::new();
+        let mut set_ticker = HashSet::new();
+
         for (idx, line) in reader.lines().skip(1).enumerate() {
             // "option_symbol","underlying_symbol","strike","option_type","expires"
             let line = line.unwrap();
@@ -907,6 +948,11 @@ mod tests {
             }
 
             assert_eq!(contract.expiry, NaiveDate::from_str(splits[4]).unwrap());
+
+            set_str.insert(option_symbol.to_string());
+            set_ticker.insert(contract);
         }
+
+        assert_eq!(set_str.len(), set_ticker.len());
     }
 }
