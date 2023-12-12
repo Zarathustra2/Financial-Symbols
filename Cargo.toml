@@ -1,12 +1,12 @@
 [package]
 name = "financial_symbols"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 authors = ["Dario <dario.heinisch@gmail.com>"]
 description = "Stock symbols & option contracts structs which implement the Copy trait"
 license = "MIT"
 documentation = "https://docs.rs/financial_symbols/latest/financial_symbols/"
-exclude = ["/ci", "images/", ".*", "/test_data", "benches/"]
+exclude = ["/ci", "images/", ".*", "/test_data"]
 keywords = ["options", "symbol", "stock"]
 categories = ["finance", "encoding", "data-structures"]
 
@@ -34,4 +34,8 @@ criterion = { version = "0.4", features = ["html_reports"] }
 
 [[bench]]
 name = "my_benchmark"
+harness = false
+
+[[bench]]
+name = "decimal"
 harness = false

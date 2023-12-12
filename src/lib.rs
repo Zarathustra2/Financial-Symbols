@@ -508,7 +508,7 @@ impl OptionContract {
             bail!("{s} is not a valid contract, it has a length of {len} but the minimum contract length is {MIN_CONTRACT_LENGTH}");
         }
 
-        let mut strike: u32 = 0;
+        let mut strike: i128 = 0;
         let mut ot_type: Option<OptionType> = None;
         let mut ticker_bytes = [0u8; TICKER_LENGTH];
 
@@ -528,8 +528,8 @@ impl OptionContract {
             let byte = contract_bytes[idx];
             bytes[idx] = byte;
             if idx >= strike_offset {
-                if byte != 48 {
-                    let digit = (byte - b'0') as u32;
+                if byte != b'0' {
+                    let digit = (byte - b'0') as i128;
                     let multiplier = match idx - strike_offset {
                         7 => 1,
                         6 => 10,
@@ -571,7 +571,7 @@ impl OptionContract {
             }
         }
 
-        let strike = Decimal::from(strike) / Decimal::ONE_THOUSAND;
+        let strike = Decimal::from_i128_with_scale(strike, 3).normalize();
 
         let ot_type = ot_type
             .ok_or_else(|| anyhow!("OptionType has not been found in the given contract"))?;
@@ -867,6 +867,15 @@ mod tests {
             assert_eq!(contract.strike, num);
             println!("Elapsed {}", start.elapsed().as_nanos());
         }
+    }
+
+    #[test]
+    pub fn dx_feed_format() {
+        let contract = OptionContract::from_iso_format("AAPL231229P00202500").unwrap();
+        assert_eq!(contract.as_dx_feed_symbol(), ".AAPL231229P202.5");
+
+        let contract = OptionContract::from_dx_feed_symbol(".AAPL231229P202.5").unwrap();
+        assert_eq!(contract.as_dx_feed_symbol(), ".AAPL231229P202.5");
     }
 
     #[test]
