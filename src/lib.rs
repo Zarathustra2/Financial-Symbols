@@ -249,7 +249,7 @@ impl Debug for OptionContract {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OptionContract")
             .field("ticker", &self.ticker)
-            .field("type", &self.option_type)
+            .field("option_type", &self.option_type)
             .field("expiry", &self.expiry)
             .field("strike", &self.strike)
             .finish()

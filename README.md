@@ -25,10 +25,10 @@ let contract = OptionContract::from_iso_format("SPXW231127C03850000").unwrap();
 let contract_copy = contract;
 assert_eq!(contract, contract_copy);
 
-assert_eq!(contract.ticker.as_str(), "SPXW");
-assert_eq!(contract.r#type, OptionType::Call);
-assert_eq!(contract.expiry, NaiveDate::from_str("2023-11-27").unwrap());
-assert_eq!(contract.strike, Decimal::from(3850));
+assert_eq!(contract.ticker().as_str(), "SPXW");
+assert_eq!(contract.option_type(), OptionType::Call);
+assert_eq!(contract.expiry(), NaiveDate::from_str("2023-11-27").unwrap());
+assert_eq!(contract.strike(), Decimal::from(3850));
 
 let contract = OptionContract::from_dx_feed_symbol(".SPXW231127C3850").unwrap();
 assert_eq!(contract.as_str(), "SPXW231127C03850000");
