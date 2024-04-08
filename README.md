@@ -26,7 +26,7 @@ let contract_copy = contract;
 assert_eq!(contract, contract_copy);
 
 assert_eq!(contract.ticker.as_str(), "SPXW");
-assert_eq!(contract.ot_type, OptionType::Call);
+assert_eq!(contract.r#type, OptionType::Call);
 assert_eq!(contract.expiry, NaiveDate::from_str("2023-11-27").unwrap());
 assert_eq!(contract.strike, Decimal::from(3850));
 

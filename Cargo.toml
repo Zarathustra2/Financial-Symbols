@@ -1,6 +1,6 @@
 [package]
 name = "financial_symbols"
-version = "0.1.5"
+version = "1.0.0"
 edition = "2021"
 authors = ["Dario <dario.heinisch@gmail.com>"]
 description = "Stock symbols & option contracts structs which implement the Copy trait"

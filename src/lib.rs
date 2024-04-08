@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
-use std::str::from_utf8_unchecked;
+use std::str::{from_utf8_unchecked, FromStr};
 
 // The maximum length of a stock ticker.
 // According to the NYSE specifications (https://www.nyse.com/publicdocs/nyse/data/NYSE_Symbology_Spec_v1.0c.pdf)
@@ -121,14 +121,6 @@ impl TryFrom<String> for Ticker {
     }
 }
 
-impl TryFrom<&String> for Ticker {
-    type Error = Error;
-
-    fn try_from(value: &String) -> Result<Self, Self::Error> {
-        value.try_into()
-    }
-}
-
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OptionType {
     Call,
@@ -223,11 +215,11 @@ impl TryFrom<String> for OptionType {
     }
 }
 
-impl TryFrom<&String> for OptionType {
-    type Error = Error;
+impl FromStr for OptionType {
+    type Err = Error;
 
-    fn try_from(value: &String) -> Result<Self, Self::Error> {
-        value.try_into()
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.try_into()
     }
 }
 
@@ -239,10 +231,10 @@ const MIN_CONTRACT_LENGTH: usize = 1 + EXPIRY_LENGTH + OPTION_TYPE_LENGTH + STRI
 
 #[derive(Clone, Copy)]
 pub struct OptionContract {
-    pub ticker: Ticker,
-    pub ot_type: OptionType,
-    pub expiry: NaiveDate,
-    pub strike: Decimal,
+    ticker: Ticker,
+    option_type: OptionType,
+    expiry: NaiveDate,
+    strike: Decimal,
     bytes: [u8; CONTRACT_LENGTH],
     len: usize,
 }
@@ -257,7 +249,7 @@ impl Debug for OptionContract {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OptionContract")
             .field("ticker", &self.ticker)
-            .field("ot_type", &self.ot_type)
+            .field("type", &self.option_type)
             .field("expiry", &self.expiry)
             .field("strike", &self.strike)
             .finish()
@@ -290,13 +282,53 @@ impl Ord for OptionContract {
     }
 }
 
+impl TryFrom<&str> for OptionContract {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        OptionContract::from_iso_format(value)
+    }
+}
+
+impl TryFrom<String> for OptionContract {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.as_str().try_into()
+    }
+}
+
+impl FromStr for OptionContract {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.try_into()
+    }
+}
+
 impl OptionContract {
+    pub fn strike(&self) -> Decimal {
+        self.strike
+    }
+
+    pub fn expiry(&self) -> NaiveDate {
+        self.expiry
+    }
+
+    pub fn ticker(&self) -> Ticker {
+        self.ticker
+    }
+
+    pub fn option_type(&self) -> OptionType {
+        self.option_type
+    }
+
     pub fn is_call(&self) -> bool {
-        self.ot_type.is_call()
+        self.option_type.is_call()
     }
 
     pub fn is_put(&self) -> bool {
-        self.ot_type.is_put()
+        self.option_type.is_put()
     }
 
     /// Returns the contract in iso format.
@@ -337,10 +369,10 @@ impl OptionContract {
     /// use chrono::NaiveDate;
     /// use std::str::FromStr;
     /// let contract = OptionContract::from_dx_feed_symbol(".SPXW231127C3850").unwrap();
-    /// assert_eq!(contract.ticker.as_str(), "SPXW");
-    /// assert_eq!(contract.ot_type, OptionType::Call);
-    /// assert_eq!(contract.expiry, NaiveDate::from_str("2023-11-27").unwrap());
-    /// assert_eq!(contract.strike, Decimal::from(3850));
+    /// assert_eq!(contract.ticker().as_str(), "SPXW");
+    /// assert_eq!(contract.option_type(), OptionType::Call);
+    /// assert_eq!(contract.expiry(), NaiveDate::from_str("2023-11-27").unwrap());
+    /// assert_eq!(contract.strike(), Decimal::from(3850));
     /// assert_eq!(contract.as_str(), "SPXW231127C03850000");
     /// ```
     pub fn from_dx_feed_symbol(s: &str) -> Result<Self, Error> {
@@ -490,10 +522,10 @@ impl OptionContract {
     /// use chrono::NaiveDate;
     /// use std::str::FromStr;
     /// let contract = OptionContract::from_iso_format("SPXW231127C03850000").unwrap();
-    /// assert_eq!(contract.ticker.as_str(), "SPXW");
-    /// assert_eq!(contract.ot_type, OptionType::Call);
-    /// assert_eq!(contract.expiry, NaiveDate::from_str("2023-11-27").unwrap());
-    /// assert_eq!(contract.strike, Decimal::from(3850));
+    /// assert_eq!(contract.ticker().as_str(), "SPXW");
+    /// assert_eq!(contract.option_type(), OptionType::Call);
+    /// assert_eq!(contract.expiry(), NaiveDate::from_str("2023-11-27").unwrap());
+    /// assert_eq!(contract.strike(), Decimal::from(3850));
     /// ```
     pub fn from_iso_format(s: &str) -> Result<Self, Error> {
         let len = s.len();
@@ -509,7 +541,7 @@ impl OptionContract {
         }
 
         let mut strike: i128 = 0;
-        let mut ot_type: Option<OptionType> = None;
+        let mut option_type: Option<OptionType> = None;
         let mut ticker_bytes = [0u8; TICKER_LENGTH];
 
         let strike_offset = len - STRIKE_LENGTH;
@@ -544,7 +576,7 @@ impl OptionContract {
                     strike += digit * multiplier;
                 }
             } else if idx == option_type_offset {
-                ot_type = Some(if byte == 80 {
+                option_type = Some(if byte == 80 {
                     OptionType::Put
                 } else {
                     OptionType::Call
@@ -573,7 +605,7 @@ impl OptionContract {
 
         let strike = Decimal::from_i128_with_scale(strike, 3).normalize();
 
-        let ot_type = ot_type
+        let option_type = option_type
             .ok_or_else(|| anyhow!("OptionType has not been found in the given contract"))?;
 
         let expiry = NaiveDate::from_ymd_opt(2000 + year, month, day).ok_or_else(|| {
@@ -592,7 +624,7 @@ impl OptionContract {
 
         Ok(Self {
             ticker,
-            ot_type,
+            option_type,
             expiry,
             strike,
             bytes,
@@ -946,9 +978,12 @@ mod tests {
                 .unwrap();
 
             assert_eq!(contract.as_str(), option_symbol);
-            assert_eq!(contract.ticker.as_str(), splits[1]);
-            assert_eq!(contract.strike, Decimal::from_str(splits[2]).unwrap());
-            assert_eq!(contract.ot_type, OptionType::try_from(splits[3]).unwrap());
+            assert_eq!(contract.ticker().as_str(), splits[1]);
+            assert_eq!(contract.strike(), Decimal::from_str(splits[2]).unwrap());
+            assert_eq!(
+                contract.option_type(),
+                OptionType::try_from(splits[3]).unwrap()
+            );
 
             match splits[3] {
                 "call" => assert!(contract.is_call()),
@@ -956,7 +991,7 @@ mod tests {
                 other => panic!("{other} is not a valid option type, bad test data?"),
             }
 
-            assert_eq!(contract.expiry, NaiveDate::from_str(splits[4]).unwrap());
+            assert_eq!(contract.expiry(), NaiveDate::from_str(splits[4]).unwrap());
 
             set_str.insert(option_symbol.to_string());
             set_ticker.insert(contract);
