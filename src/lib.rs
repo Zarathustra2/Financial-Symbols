@@ -1,6 +1,5 @@
 #![doc = include_str!("../README.md")]
 
-use anyhow::{anyhow, bail, Error};
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use std::fmt::{Debug, Display};
@@ -11,14 +10,35 @@ use std::str::{from_utf8_unchecked, FromStr};
 // According to the NYSE specifications (https://www.nyse.com/publicdocs/nyse/data/NYSE_Symbology_Spec_v1.0c.pdf)
 // it is reserving 16 chars for future growth.
 //
-// We are limitting it for now to 8 since the longest ticker symbol
+// We are limitting it for now to 7 since the longest ticker symbol
 // is 5. It is 6 if you use `.` for A/B stocks such as CWEN.A
 const TICKER_LENGTH: usize = 8;
 
-#[derive(Clone, Copy)]
+#[derive(Debug)]
+pub enum TickerParseErr {
+    TooLong(usize),
+    Empty,
+}
+
+impl Display for TickerParseErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TickerParseErr::TooLong(len) => write!(
+                f,
+                "Ticker has {} chars. The maximum amount of chars is {}",
+                len,
+                TICKER_LENGTH - 1
+            ),
+            TickerParseErr::Empty => write!(f, "Ticker is empty"),
+        }
+    }
+}
+
+impl std::error::Error for TickerParseErr {}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Ticker {
     bytes: [u8; TICKER_LENGTH],
-    len: usize,
 }
 
 impl Ticker {
@@ -26,6 +46,7 @@ impl Ticker {
         let ticker_bytes = s.as_bytes();
         let mut bytes = [0u8; TICKER_LENGTH];
         let len = s.len();
+        bytes[0] = len as u8;
 
         // TODO: Change to
         // std::ptr::copy_nonoverlapping(ticker_bytes.as_ptr(), bytes.as_mut_ptr(), len);
@@ -35,19 +56,19 @@ impl Ticker {
             if i >= len {
                 break;
             }
-            bytes[i] = ticker_bytes[i];
+            bytes[i + 1] = ticker_bytes[i];
             i += 1;
         }
 
-        Self::from_raw(bytes, len)
+        Self::from_raw(bytes)
     }
 
-    pub const fn from_raw(bytes: [u8; TICKER_LENGTH], len: usize) -> Self {
-        Self { bytes, len }
+    pub const fn from_raw(bytes: [u8; TICKER_LENGTH]) -> Self {
+        Self { bytes }
     }
 
     pub fn as_str(&self) -> &str {
-        unsafe { from_utf8_unchecked(self.bytes.get_unchecked(..self.len)) }
+        unsafe { from_utf8_unchecked(self.bytes.get_unchecked(1..1 + self.bytes[0] as usize)) }
     }
 }
 
@@ -57,69 +78,48 @@ impl Display for Ticker {
     }
 }
 
-impl Debug for Ticker {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Ticker({})", self.as_str())
-    }
-}
-
-impl Hash for Ticker {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.bytes.hash(state);
-    }
-}
-
-impl PartialEq for Ticker {
-    fn eq(&self, other: &Self) -> bool {
-        self.bytes == other.bytes
-    }
-}
-
-impl PartialOrd for Ticker {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Eq for Ticker {}
-
-impl Ord for Ticker {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.bytes.cmp(&other.bytes)
-    }
-}
-
 impl TryFrom<&str> for Ticker {
-    type Error = Error;
+    type Error = TickerParseErr;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let len = value.len();
-        if len > TICKER_LENGTH {
-            bail!(
-                "{} has more than {} chars; this is not a valid ticker!",
-                value,
-                TICKER_LENGTH
-            );
+        if len > (TICKER_LENGTH - 1) {
+            return Err(TickerParseErr::TooLong(len));
         } else if len == 0 {
-            bail!("An empty string is not a valid ticker");
+            return Err(TickerParseErr::Empty);
         }
 
         let ticker_bytes = value.as_bytes();
         let mut bytes = [0u8; TICKER_LENGTH];
+        bytes[0] = len as u8;
 
-        bytes[..len].copy_from_slice(&ticker_bytes[..len]);
+        bytes[1..len + 1].copy_from_slice(&ticker_bytes[..len]);
 
-        Ok(Self::from_raw(bytes, len))
+        Ok(Self::from_raw(bytes))
     }
 }
 
 impl TryFrom<String> for Ticker {
-    type Error = Error;
+    type Error = TickerParseErr;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         value.as_str().try_into()
     }
 }
+
+#[derive(Debug)]
+pub struct OptionTypeErr;
+
+impl Display for OptionTypeErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Not a valid option type, valid types are 'C', 'c', 'P', 'p', 'call' & 'put'"
+        )
+    }
+}
+
+impl std::error::Error for OptionTypeErr {}
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OptionType {
@@ -184,31 +184,31 @@ impl OptionType {
 }
 
 impl TryFrom<char> for OptionType {
-    type Error = Error;
+    type Error = OptionTypeErr;
 
     fn try_from(value: char) -> Result<Self, Self::Error> {
         match value {
             'C' | 'c' => Ok(OptionType::Call),
             'P' | 'p' => Ok(OptionType::Put),
-            _ => bail!("{value} is not a valid option type"),
+            _ => Err(OptionTypeErr),
         }
     }
 }
 
 impl TryFrom<&str> for OptionType {
-    type Error = Error;
+    type Error = OptionTypeErr;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             "C" | "c" | "call" => Ok(Self::Call),
             "P" | "p" | "put" => Ok(Self::Put),
-            _ => bail!("{value} is not a valid option type"),
+            _ => Err(OptionTypeErr),
         }
     }
 }
 
 impl TryFrom<String> for OptionType {
-    type Error = Error;
+    type Error = OptionTypeErr;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         value.as_str().try_into()
@@ -216,12 +216,51 @@ impl TryFrom<String> for OptionType {
 }
 
 impl FromStr for OptionType {
-    type Err = Error;
+    type Err = OptionTypeErr;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.try_into()
     }
 }
+
+#[derive(Debug)]
+pub enum OptionContractErr {
+    TooLong(usize),
+    TooShort(usize),
+    InvalidOptionType(char),
+    InvalidExpiry { year: i32, month: u32, day: u32 },
+    ExpectedNum { idx: usize, byte: u8 },
+    InvalidStrike,
+    InvalidTicker,
+}
+
+impl Display for OptionContractErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OptionContractErr::TooLong(len) => write!(
+                f,
+                "Option contract has {} chars. The maximum amount of chars is {}",
+                len, CONTRACT_LENGTH
+            ),
+            OptionContractErr::TooShort(len) => write!(
+                f,
+                "Option contract has {} chars. The minimum amount of chars is {}",
+                len, MIN_CONTRACT_LENGTH
+            ),
+            OptionContractErr::InvalidOptionType(c) => write!(f, "Invalid option type {c}"),
+            OptionContractErr::InvalidExpiry { year, month, day } => {
+                write!(f, "{year}-{month}-{day} is not a valid date")
+            }
+            OptionContractErr::ExpectedNum { idx, byte: b } => {
+                write!(f, "Expected a number at idx {idx}, got byte {b}")
+            }
+            OptionContractErr::InvalidStrike => write!(f, "Invalid strike"),
+            OptionContractErr::InvalidTicker => write!(f, "Invalid ticker"),
+        }
+    }
+}
+
+impl std::error::Error for OptionContractErr {}
 
 const EXPIRY_LENGTH: usize = 6;
 const OPTION_TYPE_LENGTH: usize = 1;
@@ -229,112 +268,69 @@ const STRIKE_LENGTH: usize = 8;
 const CONTRACT_LENGTH: usize = TICKER_LENGTH + EXPIRY_LENGTH + OPTION_TYPE_LENGTH + STRIKE_LENGTH;
 const MIN_CONTRACT_LENGTH: usize = 1 + EXPIRY_LENGTH + OPTION_TYPE_LENGTH + STRIKE_LENGTH;
 
-#[derive(Clone, Copy)]
+// TODO: Or just save ticker, strike as u32, expiry & option type and create string on the fly
+#[derive(Clone, Copy, Debug)]
 pub struct OptionContract {
-    ticker: Ticker,
-    option_type: OptionType,
-    expiry: NaiveDate,
-    strike: Decimal,
     bytes: [u8; CONTRACT_LENGTH],
-    len: usize,
-}
-
-impl Display for OptionContract {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-impl Debug for OptionContract {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("OptionContract")
-            .field("ticker", &self.ticker)
-            .field("option_type", &self.option_type)
-            .field("expiry", &self.expiry)
-            .field("strike", &self.strike)
-            .finish()
-    }
-}
-
-impl Hash for OptionContract {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.bytes.hash(state);
-    }
-}
-
-impl PartialEq for OptionContract {
-    fn eq(&self, other: &Self) -> bool {
-        self.bytes == other.bytes
-    }
-}
-
-impl PartialOrd for OptionContract {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Eq for OptionContract {}
-
-impl Ord for OptionContract {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.bytes.cmp(&other.bytes)
-    }
-}
-
-impl TryFrom<&str> for OptionContract {
-    type Error = Error;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        OptionContract::from_iso_format(value)
-    }
-}
-
-impl TryFrom<String> for OptionContract {
-    type Error = Error;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        value.as_str().try_into()
-    }
-}
-
-impl FromStr for OptionContract {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.try_into()
-    }
+    len: u8,
 }
 
 impl OptionContract {
+    fn ticker_len(&self) -> usize {
+        self.len as usize - EXPIRY_LENGTH - OPTION_TYPE_LENGTH - STRIKE_LENGTH
+    }
+
     pub fn strike(&self) -> Decimal {
-        self.strike
+        let mut num = 0u32;
+
+        let bytes = &self.bytes[self.len as usize - 8..self.len as usize];
+        for (idx, byte) in bytes.iter().enumerate() {
+            num += ((*byte - b'0') as u32) * 10u32.pow((bytes.len() - 1 - idx) as u32);
+        }
+
+        Decimal::from_i128_with_scale(num as i128, 3).normalize()
     }
 
     pub fn expiry(&self) -> NaiveDate {
-        self.expiry
+        let bytes = &self.bytes[self.ticker_len()..self.ticker_len() + EXPIRY_LENGTH];
+
+        let year = (bytes[0] - b'0') as i32 * 10 + (bytes[1] - b'0') as i32;
+        let month = (bytes[2] - b'0') as u32 * 10 + (bytes[3] - b'0') as u32;
+        let day = (bytes[4] - b'0') as u32 * 10 + (bytes[5] - b'0') as u32;
+
+        NaiveDate::from_ymd_opt(2000 + year, month, day)
+            .expect("Only valid dates should be created")
     }
 
     pub fn ticker(&self) -> Ticker {
-        self.ticker
+        let mut ticker_bytes = [0u8; TICKER_LENGTH];
+        ticker_bytes[0] = self.ticker_len() as u8;
+        ticker_bytes[1..self.ticker_len() + 1].copy_from_slice(&self.bytes[..self.ticker_len()]);
+
+        Ticker::from_raw(ticker_bytes)
     }
 
     pub fn option_type(&self) -> OptionType {
-        self.option_type
+        let option_type_byte = self.bytes[self.ticker_len() + EXPIRY_LENGTH];
+        if option_type_byte == 80 {
+            OptionType::Put
+        } else {
+            OptionType::Call
+        }
     }
 
     pub fn is_call(&self) -> bool {
-        self.option_type.is_call()
+        self.option_type().is_call()
     }
 
     pub fn is_put(&self) -> bool {
-        self.option_type.is_put()
+        self.option_type().is_put()
     }
 
     /// Returns the contract in iso format.
     /// See [`from_iso_format`](#method.from_iso_format)
     pub fn as_str(&self) -> &str {
-        unsafe { from_utf8_unchecked(self.bytes.get_unchecked(..self.len)) }
+        unsafe { from_utf8_unchecked(self.bytes.get_unchecked(..self.len as usize)) }
     }
 
     /// Returns the option symbol in the dx feed format.
@@ -349,10 +345,10 @@ impl OptionContract {
     pub fn as_dx_feed_symbol(&self) -> String {
         format!(
             ".{}{}{}{}",
-            self.ticker.as_str(),
-            self.expiry.format("%y%m%d"),
+            self.ticker().as_str(),
+            self.expiry().format("%y%m%d"),
             if self.is_call() { "C" } else { "P" },
-            self.strike
+            self.strike()
         )
     }
 
@@ -375,127 +371,89 @@ impl OptionContract {
     /// assert_eq!(contract.strike(), Decimal::from(3850));
     /// assert_eq!(contract.as_str(), "SPXW231127C03850000");
     /// ```
-    pub fn from_dx_feed_symbol(s: &str) -> Result<Self, Error> {
+    pub fn from_dx_feed_symbol(s: &str) -> Result<Self, OptionContractErr> {
         if s.len() >= CONTRACT_LENGTH {
-            let len = s.len();
-            bail!("Input {s} has {len} chars, this is more than the expected contract length of {CONTRACT_LENGTH}");
+            return Err(OptionContractErr::TooLong(s.len()));
+        } else if s.is_empty() {
+            return Err(OptionContractErr::TooShort(s.len()));
         }
 
-        let mut numbers_seen = 0;
-        let mut option_type_seen = false;
+        if !s.starts_with('.') {
+            return Err(OptionContractErr::InvalidTicker);
+        }
 
-        let mut iso_bytes: [u8; CONTRACT_LENGTH] = [0u8; CONTRACT_LENGTH];
+        let mut strike_start: Option<usize> = None;
 
-        let mut len = 0;
-        let mut idx_offset = 0;
-
-        let mut whole_part_idx = 0;
-        let mut whole_part = [0u8; 5];
-        let mut is_decimal_part = false;
-
-        let mut decimal_part_idx = 0;
-        let mut decimal_part = [0u8; 3];
-
-        let mut decimal_places = 0;
-
-        for (idx, c) in s.chars().enumerate() {
-            if idx == 0 {
-                if c != '.' {
-                    bail!("Expected the option contract to start with '.' but got {c}");
-                }
-                idx_offset += 1;
-                continue;
-            }
-
-            if numbers_seen >= 6 {
-                if option_type_seen {
-                    if c == '.' {
-                        is_decimal_part = true;
-                        continue;
-                    }
-                    if is_decimal_part {
-                        if decimal_part_idx >= 2 {
-                            bail!("Decimal part of the strike has more than 2 places, input {s}");
-                        }
-
-                        decimal_part[decimal_part_idx] = c as u8;
-                        decimal_part_idx += 1;
-                    } else {
-                        if whole_part_idx >= 5 {
-                            bail!("Whole part of the strike has more than 4 places, input {s}");
-                        }
-                        whole_part[whole_part_idx] = c as u8;
-                        whole_part_idx += 1;
-                    }
-
-                    decimal_places += 1;
-                } else {
-                    if c == 'C' || c == 'P' {
-                        option_type_seen = true;
-                    }
-                    iso_bytes[idx - idx_offset] = c as u8;
-
-                    len += 1;
-                }
-            } else {
-                if c.is_numeric() {
-                    numbers_seen += 1;
-                }
-                iso_bytes[idx - idx_offset] = c as u8;
-                len += 1;
+        for (idx, c) in s.chars().rev().enumerate() {
+            if c == 'C' || c == 'P' {
+                strike_start = Some(s.len() - idx);
+                break;
             }
         }
 
-        let post_fix_zeros = match decimal_part_idx {
-            0 => 3,
-            1 => 2,
-            2 => 1,
-            3 => 0,
-            _ => panic!("Should not happen, report upstream"),
+        let strike_start = strike_start.ok_or(OptionContractErr::InvalidStrike)?;
+
+        if strike_start == s.len() {
+            return Err(OptionContractErr::InvalidStrike);
+        }
+
+        let (start, strike) = unsafe {
+            (
+                s.get_unchecked(1..strike_start),
+                s.get_unchecked(strike_start..s.len()),
+            )
         };
 
-        let pre_fix_zeros = STRIKE_LENGTH - post_fix_zeros - (decimal_places);
+        let strike = if let Some(idx) = strike.find('.') {
+            let (up, down) = unsafe {
+                (
+                    strike.get_unchecked(0..idx),
+                    strike.get_unchecked(idx + 1..strike.len()),
+                )
+            };
 
-        for _ in 0..pre_fix_zeros {
-            if len >= CONTRACT_LENGTH {
-                bail!("Input {s} would result in an iso format with more than {CONTRACT_LENGTH} chars");
+            let mut s = String::with_capacity(8);
+
+            let back_zeros = 3 - down.len();
+            let front_zeros = 8 - up.len() - back_zeros - down.len();
+
+            for _ in 0..front_zeros {
+                s.push('0');
             }
 
-            iso_bytes[len] = b'0';
-            len += 1;
-        }
+            s.push_str(up);
+            s.push_str(down);
 
-        if whole_part_idx == 0 {
-            bail!("Strike is missing");
-        }
-
-        for char in whole_part.iter().take(whole_part_idx) {
-            if len >= CONTRACT_LENGTH {
-                bail!("Input {s} would result in an iso format with more than {CONTRACT_LENGTH} chars");
+            for _ in 0..back_zeros {
+                s.push('0');
             }
-            iso_bytes[len] = *char;
-            len += 1;
-        }
 
-        for char in decimal_part.iter().take(decimal_part_idx) {
-            if len >= CONTRACT_LENGTH {
-                bail!("Input {s} would result in an iso format with more than {CONTRACT_LENGTH} chars");
+            s
+        } else {
+            let back_zeros = 3;
+            if (strike.len() + back_zeros) > 8 {
+                return Err(OptionContractErr::InvalidStrike);
             }
-            iso_bytes[len] = *char;
-            len += 1;
-        }
+            let front_zeros = 8 - strike.len() - back_zeros;
 
-        for _ in 0..post_fix_zeros {
-            if len >= CONTRACT_LENGTH {
-                bail!("Input {s} would result in an iso format with more than {CONTRACT_LENGTH} chars");
+            let mut s = String::with_capacity(8);
+            for _ in 0..front_zeros {
+                s.push('0');
             }
-            iso_bytes[len] = b'0';
-            len += 1;
-        }
 
-        let s = unsafe { from_utf8_unchecked(iso_bytes.get_unchecked(..(len))) };
+            s.push_str(strike);
 
-        Self::from_iso_format(s)
+            for _ in 0..back_zeros {
+                s.push('0');
+            }
+
+            s
+        };
+
+        let mut iso = start.to_string();
+        iso.push_str(strike.as_str());
+
+        Self::from_iso_format(iso.as_str())
     }
 
     /// Parses an option contract in the normal iso format.
@@ -527,21 +485,15 @@ impl OptionContract {
     /// assert_eq!(contract.expiry(), NaiveDate::from_str("2023-11-27").unwrap());
     /// assert_eq!(contract.strike(), Decimal::from(3850));
     /// ```
-    pub fn from_iso_format(s: &str) -> Result<Self, Error> {
+    pub fn from_iso_format(s: &str) -> Result<Self, OptionContractErr> {
         let len = s.len();
 
         if len > CONTRACT_LENGTH {
-            bail!(
-                "{} has more than {} chars; this is not a valid ISO option contract!",
-                s,
-                CONTRACT_LENGTH
-            );
+            return Err(OptionContractErr::TooLong(len));
         } else if len < MIN_CONTRACT_LENGTH {
-            bail!("{s} is not a valid contract, it has a length of {len} but the minimum contract length is {MIN_CONTRACT_LENGTH}");
+            return Err(OptionContractErr::TooShort(len));
         }
 
-        let mut strike: i128 = 0;
-        let mut option_type: Option<OptionType> = None;
         let mut ticker_bytes = [0u8; TICKER_LENGTH];
 
         let strike_offset = len - STRIKE_LENGTH;
@@ -556,32 +508,23 @@ impl OptionContract {
         let mut bytes = [0u8; CONTRACT_LENGTH];
 
         let mut idx = 0;
+        // TODO: Don't need to loop and copy over bytes, just check for each range that valid ticker, expiry, option_type & strike
         loop {
             let byte = contract_bytes[idx];
             bytes[idx] = byte;
             if idx >= strike_offset {
-                if byte != b'0' {
-                    let digit = (byte - b'0') as i128;
-                    let multiplier = match idx - strike_offset {
-                        7 => 1,
-                        6 => 10,
-                        5 => 100,
-                        4 => 1000,
-                        3 => 10000,
-                        2 => 100000,
-                        1 => 1000000,
-                        0 => 10000000,
-                        _ => bail!("Should not happen"),
-                    };
-                    strike += digit * multiplier;
+                if !byte.is_ascii_digit() {
+                    return Err(OptionContractErr::ExpectedNum { idx, byte });
                 }
             } else if idx == option_type_offset {
-                option_type = Some(if byte == 80 {
-                    OptionType::Put
-                } else {
-                    OptionType::Call
-                });
+                if byte != b'C' && byte != b'P' {
+                    return Err(OptionContractErr::InvalidOptionType(byte as char));
+                }
             } else if idx >= expiry_offset {
+                if !byte.is_ascii_digit() {
+                    return Err(OptionContractErr::ExpectedNum { idx, byte });
+                }
+
                 let i = (byte - b'0') as u32;
 
                 match idx - expiry_offset {
@@ -591,10 +534,10 @@ impl OptionContract {
                     2 => month += 10 * i,
                     1 => year += i as i32,
                     0 => year += 10 * i as i32,
-                    _ => bail!("Should not happen, report upstream"),
+                    _ => unreachable!(),
                 }
             } else {
-                ticker_bytes[idx] = byte;
+                ticker_bytes[idx + 1] = byte;
             }
 
             idx += 1;
@@ -603,33 +546,70 @@ impl OptionContract {
             }
         }
 
-        let strike = Decimal::from_i128_with_scale(strike, 3).normalize();
-
-        let option_type = option_type
-            .ok_or_else(|| anyhow!("OptionType has not been found in the given contract"))?;
-
-        let expiry = NaiveDate::from_ymd_opt(2000 + year, month, day).ok_or_else(|| {
-            anyhow!(
-                "Failed to construct expiry from year {}, month {} & day {}",
-                year,
-                month,
-                day
-            )
-        })?;
-
-        let ticker = Ticker::from_raw(
-            ticker_bytes,
-            len - STRIKE_LENGTH - EXPIRY_LENGTH - OPTION_TYPE_LENGTH,
-        );
+        if NaiveDate::from_ymd_opt(2000 + year, month, day).is_none() {
+            return Err(OptionContractErr::InvalidExpiry { year, month, day });
+        };
 
         Ok(Self {
-            ticker,
-            option_type,
-            expiry,
-            strike,
             bytes,
-            len,
+            len: len as u8,
         })
+    }
+}
+
+impl Display for OptionContract {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl Hash for OptionContract {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.bytes.hash(state);
+    }
+}
+
+impl PartialEq for OptionContract {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes
+    }
+}
+
+impl PartialOrd for OptionContract {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for OptionContract {}
+
+impl Ord for OptionContract {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.bytes.cmp(&other.bytes)
+    }
+}
+
+impl TryFrom<&str> for OptionContract {
+    type Error = OptionContractErr;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        OptionContract::from_iso_format(value)
+    }
+}
+
+impl TryFrom<String> for OptionContract {
+    type Error = OptionContractErr;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.as_str().try_into()
+    }
+}
+
+impl FromStr for OptionContract {
+    type Err = OptionContractErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.try_into()
     }
 }
 
@@ -896,8 +876,8 @@ mod tests {
         for _ in 0..10 {
             let start = Instant::now();
             let contract = OptionContract::from_iso_format("PANW250117P00256670").unwrap();
-            assert_eq!(contract.strike, num);
-            println!("Elapsed {}", start.elapsed().as_nanos());
+            assert_eq!(contract.strike(), num);
+            println!("Elapsed {:?}", start.elapsed());
         }
     }
 
@@ -998,5 +978,10 @@ mod tests {
         }
 
         assert_eq!(set_str.len(), set_ticker.len());
+    }
+
+    #[test]
+    fn missing_strike() {
+        assert!(OptionContract::from_iso_format("AAPL231229P").is_err());
     }
 }
