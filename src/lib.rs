@@ -377,7 +377,7 @@ impl OptionContract {
         self.option_type.is_put()
     }
 
-    pub fn to_iso_fmt(&self) -> String {
+    pub fn to_iso(&self) -> String {
         let (bytes, total_len) = self.utf8_bytes();
         // unsafe { String::from_utf8_unchecked(bytes[..total_len].to_vec()) }
         String::from_utf8(bytes[..total_len].to_vec()).unwrap()
@@ -516,11 +516,11 @@ impl OptionContract {
     /// use chrono::NaiveDate;
     /// use std::str::FromStr;
     /// let contract = OptionContract::from_dx_feed_symbol(".SPXW231127C3850").unwrap();
-    /// assert_eq!(contract.ticker().as_str(), "SPXW");
+    /// assert_eq!(contract.ticker(), "SPXW");
     /// assert_eq!(contract.option_type(), OptionType::Call);
     /// assert_eq!(contract.expiry(), NaiveDate::from_str("2023-11-27").unwrap());
     /// assert_eq!(contract.strike(), Decimal::from(3850));
-    /// assert_eq!(contract.as_str(), "SPXW231127C03850000");
+    /// assert_eq!(contract.to_iso(), "SPXW231127C03850000");
     /// ```
     pub fn from_dx_feed_symbol(s: &str) -> Result<Self, OptionContractErr> {
         if s.len() >= CONTRACT_LENGTH {
@@ -623,7 +623,7 @@ impl OptionContract {
 
 impl Display for OptionContract {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_iso_fmt())
+        write!(f, "{}", self.to_iso())
     }
 }
 
@@ -920,13 +920,13 @@ mod tests {
     #[test]
     pub fn from_dx_format() {
         let contract = OptionContract::from_dx_feed_symbol(".PANW250117P256.67").unwrap();
-        assert_eq!(contract.to_iso_fmt(), "PANW250117P00256670");
+        assert_eq!(contract.to_iso(), "PANW250117P00256670");
 
         let contract = OptionContract::from_dx_feed_symbol(".BOAT230120P24").unwrap();
-        assert_eq!(contract.to_iso_fmt(), "BOAT230120P00024000");
+        assert_eq!(contract.to_iso(), "BOAT230120P00024000");
 
         let contract = OptionContract::from_dx_feed_symbol(".UPV230421C38").unwrap();
-        assert_eq!(contract.to_iso_fmt(), "UPV230421C00038000");
+        assert_eq!(contract.to_iso(), "UPV230421C00038000");
     }
 
     #[test]
@@ -985,7 +985,7 @@ mod tests {
                 .context(context)
                 .unwrap();
 
-            assert_eq!(contract.to_iso_fmt(), option_symbol);
+            assert_eq!(contract.to_iso(), option_symbol);
             assert_eq!(contract.ticker(), splits[1]);
             assert_eq!(contract.strike(), Decimal::from_str(splits[2]).unwrap());
             assert_eq!(
@@ -1011,5 +1011,40 @@ mod tests {
     #[test]
     fn missing_strike() {
         assert!(OptionContract::from_iso_format("AAPL231229P").is_err());
+    }
+
+    #[test]
+    fn missing_ticker() {
+        assert!(OptionContract::from_iso_format("231229P00202500").is_err());
+    }
+
+    #[test]
+    fn missing_option_type() {
+        assert!(OptionContract::from_iso_format("AAPL23122900202500").is_err());
+    }
+
+    #[test]
+    fn missing_expiry() {
+        assert!(OptionContract::from_iso_format("AAPLP00202500").is_err());
+    }
+
+    #[test]
+    fn bad_expiry() {
+        assert!(OptionContract::from_iso_format("AAPL231321P00202500").is_err());
+        assert!(OptionContract::from_iso_format("AAPL231399P00202500").is_err());
+    }
+
+    #[test]
+    fn bad_option_type() {
+        assert!(OptionContract::from_iso_format("AAPL231229X00202500").is_err());
+        assert!(OptionContract::from_iso_format("AAPL231229100202500").is_err());
+    }
+
+    #[test]
+    fn bad_strike() {
+        assert!(OptionContract::from_iso_format("PANW250117P0X256670").is_err());
+        assert!(OptionContract::from_iso_format("PANW250117P00256670X").is_err());
+        assert!(OptionContract::from_iso_format("PANW250117P002566701").is_err());
+        assert!(OptionContract::from_iso_format("PANW250117P100256670").is_err());
     }
 }
