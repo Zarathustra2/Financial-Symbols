@@ -46,6 +46,8 @@ pub struct Ticker {
     bytes: [u8; TICKER_LENGTH],
 }
 
+// A ticker cannot be empty
+#[allow(clippy::len_without_is_empty)]
 impl Ticker {
     pub const fn from_str_unchecked(s: &str) -> Self {
         let ticker_bytes = s.as_bytes();
