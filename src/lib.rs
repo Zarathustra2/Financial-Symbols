@@ -197,8 +197,8 @@ impl OptionType {
     /// assert!(OptionType::Call.is_call());
     /// assert!(!OptionType::Put.is_call());
     /// ```
-    pub fn is_call(&self) -> bool {
-        self == &OptionType::Call
+    pub const fn is_call(&self) -> bool {
+        matches!(self, OptionType::Call)
     }
 
     /// Returns true if it is a put
@@ -209,8 +209,8 @@ impl OptionType {
     /// assert!(!OptionType::Call.is_put());
     /// assert!(OptionType::Put.is_put());
     /// ```
-    pub fn is_put(&self) -> bool {
-        !self.is_call()
+    pub const fn is_put(&self) -> bool {
+        matches!(self, OptionType::Put)
     }
 }
 
@@ -314,75 +314,108 @@ pub struct OptionContract {
 }
 
 impl OptionContract {
-    pub fn utf8_bytes(&self) -> ([u8; CONTRACT_LENGTH], usize) {
-        let mut bytes = [0u8; CONTRACT_LENGTH];
-
-        let ticker_bytes = &self.ticker.bytes;
-        let ticker_len = self.ticker.len();
-
-        bytes[..ticker_len].copy_from_slice(&ticker_bytes[1..ticker_len + 1]);
-
-        let year = self.expiry.year() - 2000;
-        let month = self.expiry.month0() + 1;
-        let day = self.expiry.day();
-        let ot_type = if self.option_type.is_call() {
-            b'C'
-        } else {
-            b'P'
-        };
-        let strike = self.strike;
-
-        let total_len = ticker_len + EXPIRY_LENGTH + OPTION_TYPE_LENGTH + STRIKE_LENGTH;
-
-        bytes[ticker_len..total_len].copy_from_slice(&[
-            (year / 10) as u8 + b'0',
-            (year % 10) as u8 + b'0',
-            (month / 10) as u8 + b'0',
-            (month % 10) as u8 + b'0',
-            (day / 10) as u8 + b'0',
-            (day % 10) as u8 + b'0',
-            ot_type,
-            (strike / 10000000) as u8 + b'0',
-            ((strike / 1000000) % 10) as u8 + b'0',
-            ((strike / 100000) % 10) as u8 + b'0',
-            ((strike / 10000) % 10) as u8 + b'0',
-            ((strike / 1000) % 10) as u8 + b'0',
-            ((strike / 100) % 10) as u8 + b'0',
-            ((strike / 10) % 10) as u8 + b'0',
-            ((strike) % 10) as u8 + b'0',
-        ]);
-
-        (bytes, total_len)
-    }
-
+    /// Returns the strike of the contract as a decimal.
+    ///
+    /// # Examples
+    /// ```
+    /// use financial_symbols::{OptionContract, OptionType};
+    /// use rust_decimal::Decimal;
+    /// let contract = OptionContract::from_osi("SPXW231127C03850000").unwrap();
+    /// assert_eq!(contract.strike(), Decimal::from(3850));
+    /// ```
     pub fn strike(&self) -> Decimal {
         Decimal::from_i128_with_scale(self.strike as i128, 3).normalize()
     }
 
+    /// Returns the expiry date of the contract
+    /// # Examples
+    /// ```
+    /// use financial_symbols::{OptionContract, OptionType};
+    /// use chrono::NaiveDate;
+    /// use std::str::FromStr;
+    /// let contract = OptionContract::from_osi("SPXW231127C03850000").unwrap();
+    /// assert_eq!(contract.expiry(), NaiveDate::from_str("2023-11-27").unwrap());
+    /// ```
     pub fn expiry(&self) -> NaiveDate {
         self.expiry
     }
 
+    /// Returns the ticker of the contract
+    /// # Examples
+    /// ```
+    /// use financial_symbols::{OptionContract, OptionType};
+    /// let contract = OptionContract::from_osi("SPXW231127C03850000").unwrap();
+    /// assert_eq!(contract.ticker().as_str(), "SPXW");
+    /// ```
     pub fn ticker(&self) -> Ticker {
         self.ticker
     }
 
+    /// Returns the option type of the contract
+    /// # Examples
+    /// ```
+    /// use financial_symbols::{OptionContract, OptionType};
+    /// let contract = OptionContract::from_osi("SPXW231127C03850000").unwrap();
+    /// assert_eq!(contract.option_type(), OptionType::Call);
+    /// let contract = OptionContract::from_osi("SPXW231127P03850000").unwrap();
+    /// assert_eq!(contract.option_type(), OptionType::Put);
     pub fn option_type(&self) -> OptionType {
         self.option_type
     }
 
-    pub fn is_call(&self) -> bool {
+    /// Returns true if the option is a call
+    /// # Examples
+    /// ```
+    /// use financial_symbols::{OptionContract, OptionType};
+    /// let contract = OptionContract::from_osi("SPXW231127C03850000").unwrap();
+    /// assert!(contract.is_call());
+    /// let contract = OptionContract::from_osi("SPXW231127P03850000").unwrap();
+    /// assert!(!contract.is_call());
+    /// ```
+    pub const fn is_call(&self) -> bool {
         self.option_type.is_call()
     }
 
-    pub fn is_put(&self) -> bool {
+    /// Returns true if the option is a put
+    /// # Examples
+    /// ```
+    /// use financial_symbols::{OptionContract, OptionType};
+    /// let contract = OptionContract::from_osi("SPXW231127C03850000").unwrap();
+    /// assert!(!contract.is_put());
+    /// let contract = OptionContract::from_osi("SPXW231127P03850000").unwrap();
+    /// assert!(contract.is_put());
+    /// ```
+    pub const fn is_put(&self) -> bool {
         self.option_type.is_put()
     }
 
-    pub fn to_iso(&self) -> String {
-        let (bytes, total_len) = self.utf8_bytes();
-        // unsafe { String::from_utf8_unchecked(bytes[..total_len].to_vec()) }
-        String::from_utf8(bytes[..total_len].to_vec()).unwrap()
+    /// Returns the option symbol in the dx feed format.
+    /// See [`from_dx_feed`](#method.from_dx_feed) for more information.
+    /// # Examples
+    /// ```
+    /// use financial_symbols::{OptionContract, OptionType};
+    /// let contract = OptionContract::from_osi("SPXW231127C03850000").unwrap();
+    /// assert_eq!(contract.to_dx_feed(), ".SPXW231127C3850");
+    /// ```
+    pub fn to_dx_feed(&self) -> String {
+        let strike = self.strike().to_string();
+
+        let mut s = String::with_capacity(1 + self.ticker.len() + EXPIRY_LENGTH + strike.len());
+
+        s.push('.');
+        s.push_str(self.ticker.as_str());
+        s.push_str(&self.expiry.format("%y%m%d").to_string());
+        s.push(if self.option_type.is_call() { 'C' } else { 'P' });
+        s.push_str(&strike);
+
+        s
+    }
+
+    /// Returns the option symbol in the iso format.
+    /// See [`from_osi`](#method.from_osi) for more information about the OSI format.
+    pub fn to_osi(&self) -> String {
+        let (bytes, total_len) = self.osi_utf8_bytes();
+        unsafe { String::from_utf8_unchecked(bytes[..total_len].to_vec()) }
     }
 
     /// Parses an option contract in the normal iso format.
@@ -391,7 +424,8 @@ impl OptionContract {
     /// \<TICKER\>\<EXPIRY\>\<OPTION_TYPE\>\<STRIKE\>
     ///
     /// **TICKER** is the underlying symbol, it consists only of alphabetical chars.
-    /// For instance the ticker `BRK.B` would be represented as `BRKB`
+    /// For instance the ticker `BRK.B` would be represented as `BRKB`. It can be padded by whitespaces to fill
+    /// the 6 chars as definied by the OCC but the shorter version is also valid where the whitespace is omitted.
     ///
     /// **Expiry** is in the format of `YYMMDD`. An expiration of `2023-12-14` would be represented
     /// as `231214`
@@ -402,19 +436,24 @@ impl OptionContract {
     /// It will always have a length of 8 chars. If it has less than 8 chars
     /// it will be prefixed with `0` until it has 8 chars.
     ///
+    /// Note: The original specification by the OCC says that the option symbol should be exactly 21 chars long.
+    /// For the ticker 6 chars are reserved, 6 for the expiry, 1 for the option type and 8 for the strike.
+    /// If the ticker is shorter than 6 chars it should be padded with spaces but `from_osi` also accepts
+    /// variants where the whitespace padding is omitted.
+    ///
     /// # Examples
     /// ```
     /// use financial_symbols::{OptionContract, OptionType};
     /// use rust_decimal::Decimal;
     /// use chrono::NaiveDate;
     /// use std::str::FromStr;
-    /// let contract = OptionContract::from_iso_format("SPXW231127C03850000").unwrap();
+    /// let contract = OptionContract::from_osi("SPXW231127C03850000").unwrap();
     /// assert_eq!(contract.ticker().as_str(), "SPXW");
     /// assert_eq!(contract.option_type(), OptionType::Call);
     /// assert_eq!(contract.expiry(), NaiveDate::from_str("2023-11-27").unwrap());
     /// assert_eq!(contract.strike(), Decimal::from(3850));
     /// ```
-    pub fn from_iso_format(s: &str) -> Result<Self, OptionContractErr> {
+    pub fn from_osi(s: &str) -> Result<Self, OptionContractErr> {
         let len = s.len();
 
         if len > CONTRACT_LENGTH {
@@ -482,34 +521,16 @@ impl OptionContract {
         })
     }
 
-    /// Returns the option symbol in the dx feed format.
-    /// See [`from_dx_feed_symbol`](#method.from_dx_feed_symbol) for more information.
-    /// # Examples
-    /// ```
-    /// use financial_symbols::{OptionContract, OptionType};
-    /// use std::str::FromStr;
-    /// let contract = OptionContract::from_iso_format("SPXW231127C03850000").unwrap();
-    /// assert_eq!(contract.as_dx_feed_symbol(), ".SPXW231127C3850");
-    /// ```
-    pub fn as_dx_feed_symbol(&self) -> String {
-        let strike = self.strike().to_string();
-
-        let mut s = String::with_capacity(1 + self.ticker.len() + EXPIRY_LENGTH + strike.len());
-
-        s.push('.');
-        s.push_str(self.ticker.as_str());
-        s.push_str(&self.expiry.format("%y%m%d").to_string());
-        s.push(if self.option_type.is_call() { 'C' } else { 'P' });
-        s.push_str(&strike);
-
-        s
-    }
-
     /// Parses an option contract based on the dx feed format.
+    /// The format is defined as:
+    ///
+    /// `. + OPTION ROOT + EXPIRATION DATE in YYMMDD format + OPTION TYPE (C or P) + STRIKE`
     ///
     /// The format is based on the option symbols being returned
     /// by the financial data provider DxFeed. The symbols can
     /// be found here: https://tools.dxfeed.com/ipf?TYPE=OPTION
+    ///
+    /// For the specification take a look at: https://www.dxfeed.com/downloads/documentation/dxFeed_Symbol_Guide.pdf
     ///
     /// # Examples
     /// ```
@@ -517,14 +538,14 @@ impl OptionContract {
     /// use rust_decimal::Decimal;
     /// use chrono::NaiveDate;
     /// use std::str::FromStr;
-    /// let contract = OptionContract::from_dx_feed_symbol(".SPXW231127C3850").unwrap();
+    /// let contract = OptionContract::from_dx_feed(".SPXW231127C3850").unwrap();
     /// assert_eq!(contract.ticker(), "SPXW");
     /// assert_eq!(contract.option_type(), OptionType::Call);
     /// assert_eq!(contract.expiry(), NaiveDate::from_str("2023-11-27").unwrap());
     /// assert_eq!(contract.strike(), Decimal::from(3850));
-    /// assert_eq!(contract.to_iso(), "SPXW231127C03850000");
+    /// assert_eq!(contract.to_osi(), "SPXW231127C03850000");
     /// ```
-    pub fn from_dx_feed_symbol(s: &str) -> Result<Self, OptionContractErr> {
+    pub fn from_dx_feed(s: &str) -> Result<Self, OptionContractErr> {
         if s.len() >= CONTRACT_LENGTH {
             return Err(OptionContractErr::TooLong(s.len()));
         } else if s.is_empty() {
@@ -619,13 +640,69 @@ impl OptionContract {
 
         let iso = unsafe { String::from_utf8_unchecked(iso) };
 
-        Self::from_iso_format(iso.as_str())
+        Self::from_osi(iso.as_str())
+    }
+
+    /// Returns the bytes of the option contract in the OSI format and the length of the resulting
+    /// string.
+    ///
+    /// This can be used to construct a &str from the bytes. In most cases you should just use the
+    /// [`to_osi`](#method.to_osi) method instead.
+    ///
+    /// For more information about the OSI format see [`from_osi`](#method.from_osi).
+    ///
+    /// # Examples
+    /// ```
+    /// use financial_symbols::{OptionContract, OptionType};
+    /// let contract = OptionContract::from_osi("SPXW231127C03850000").unwrap();
+    /// let (bytes, len) = contract.osi_utf8_bytes();
+    /// let s = unsafe { std::str::from_utf8_unchecked(&bytes[..len]) };
+    /// assert_eq!(s, "SPXW231127C03850000");
+    pub fn osi_utf8_bytes(&self) -> ([u8; CONTRACT_LENGTH], usize) {
+        let mut bytes = [0u8; CONTRACT_LENGTH];
+
+        let ticker_bytes = &self.ticker.bytes;
+        let ticker_len = self.ticker.len();
+
+        bytes[..ticker_len].copy_from_slice(&ticker_bytes[1..ticker_len + 1]);
+
+        let year = self.expiry.year() - 2000;
+        let month = self.expiry.month0() + 1;
+        let day = self.expiry.day();
+        let ot_type = if self.option_type.is_call() {
+            b'C'
+        } else {
+            b'P'
+        };
+        let strike = self.strike;
+
+        let total_len = ticker_len + EXPIRY_LENGTH + OPTION_TYPE_LENGTH + STRIKE_LENGTH;
+
+        bytes[ticker_len..total_len].copy_from_slice(&[
+            (year / 10) as u8 + b'0',
+            (year % 10) as u8 + b'0',
+            (month / 10) as u8 + b'0',
+            (month % 10) as u8 + b'0',
+            (day / 10) as u8 + b'0',
+            (day % 10) as u8 + b'0',
+            ot_type,
+            (strike / 10000000) as u8 + b'0',
+            ((strike / 1000000) % 10) as u8 + b'0',
+            ((strike / 100000) % 10) as u8 + b'0',
+            ((strike / 10000) % 10) as u8 + b'0',
+            ((strike / 1000) % 10) as u8 + b'0',
+            ((strike / 100) % 10) as u8 + b'0',
+            ((strike / 10) % 10) as u8 + b'0',
+            ((strike) % 10) as u8 + b'0',
+        ]);
+
+        (bytes, total_len)
     }
 }
 
 impl Display for OptionContract {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_iso())
+        write!(f, "{}", self.to_osi())
     }
 }
 
@@ -633,7 +710,7 @@ impl TryFrom<&str> for OptionContract {
     type Error = OptionContractErr;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        OptionContract::from_iso_format(value)
+        OptionContract::from_osi(value)
     }
 }
 
@@ -744,7 +821,7 @@ mod serde_feature {
         where
             E: de::Error,
         {
-            OptionContract::from_iso_format(v).map_err(E::custom)
+            OptionContract::from_osi(v).map_err(E::custom)
         }
     }
 
@@ -753,7 +830,9 @@ mod serde_feature {
         where
             S: Serializer,
         {
-            serializer.serialize_str(self.to_iso_fmt().as_str())
+            let (bytes, len) = self.osi_utf8_bytes();
+            let s = unsafe { str::from_utf8_unchecked(&bytes[..len]) };
+            serializer.serialize_str(s)
         }
     }
 
@@ -835,7 +914,7 @@ mod postgres_feature {
     impl<'a> FromSql<'a> for OptionContract {
         fn from_sql(ty: &Type, raw: &'a [u8]) -> Result<OptionContract, SqlErr> {
             let s = <&str as FromSql>::from_sql(ty, raw)?;
-            OptionContract::from_iso_format(s).map_err(|err| err.into())
+            OptionContract::from_osi(s).map_err(|err| err.into())
         }
 
         fn accepts(ty: &postgres_types::Type) -> bool {
@@ -848,7 +927,7 @@ mod postgres_feature {
         where
             Self: Sized,
         {
-            let (bytes, len) = self.utf8_bytes();
+            let (bytes, len) = self.osi_utf8_bytes();
             let s = unsafe { str::from_utf8_unchecked(&bytes[..len]) };
             <&str as ToSql>::to_sql(&s, ty, w)
         }
@@ -912,62 +991,62 @@ mod tests {
 
     #[test]
     pub fn dx_feed_format() {
-        let contract = OptionContract::from_iso_format("AAPL231229P00202500").unwrap();
-        assert_eq!(contract.as_dx_feed_symbol(), ".AAPL231229P202.5");
+        let contract = OptionContract::from_osi("AAPL231229P00202500").unwrap();
+        assert_eq!(contract.to_dx_feed(), ".AAPL231229P202.5");
 
-        let contract = OptionContract::from_dx_feed_symbol(".AAPL231229P202.5").unwrap();
-        assert_eq!(contract.as_dx_feed_symbol(), ".AAPL231229P202.5");
+        let contract = OptionContract::from_dx_feed(".AAPL231229P202.5").unwrap();
+        assert_eq!(contract.to_dx_feed(), ".AAPL231229P202.5");
     }
 
     #[test]
     pub fn from_dx_format() {
-        let contract = OptionContract::from_dx_feed_symbol(".PANW250117P256.67").unwrap();
-        assert_eq!(contract.to_iso(), "PANW250117P00256670");
+        let contract = OptionContract::from_dx_feed(".PANW250117P256.67").unwrap();
+        assert_eq!(contract.to_osi(), "PANW250117P00256670");
 
-        let contract = OptionContract::from_dx_feed_symbol(".BOAT230120P24").unwrap();
-        assert_eq!(contract.to_iso(), "BOAT230120P00024000");
+        let contract = OptionContract::from_dx_feed(".BOAT230120P24").unwrap();
+        assert_eq!(contract.to_osi(), "BOAT230120P00024000");
 
-        let contract = OptionContract::from_dx_feed_symbol(".UPV230421C38").unwrap();
-        assert_eq!(contract.to_iso(), "UPV230421C00038000");
+        let contract = OptionContract::from_dx_feed(".UPV230421C38").unwrap();
+        assert_eq!(contract.to_osi(), "UPV230421C00038000");
     }
 
     #[test]
     pub fn from_dx_format_bad_format() {
-        assert!(OptionContract::from_dx_feed_symbol("").is_err());
+        assert!(OptionContract::from_dx_feed("").is_err());
         // Missing strike
-        assert!(OptionContract::from_dx_feed_symbol(".UPV230421C").is_err());
+        assert!(OptionContract::from_dx_feed(".UPV230421C").is_err());
         // Missing option type
-        assert!(OptionContract::from_dx_feed_symbol(".UPV23042138").is_err());
+        assert!(OptionContract::from_dx_feed(".UPV23042138").is_err());
         // Missing bad expiry
-        assert!(OptionContract::from_dx_feed_symbol(".UPV231321C38").is_err());
+        assert!(OptionContract::from_dx_feed(".UPV231321C38").is_err());
         // Missing starting dot
-        assert!(OptionContract::from_dx_feed_symbol("UPV230421C38").is_err());
+        assert!(OptionContract::from_dx_feed("UPV230421C38").is_err());
         // Missing ticker
-        assert!(OptionContract::from_dx_feed_symbol(".230421C38").is_err());
+        assert!(OptionContract::from_dx_feed(".230421C38").is_err());
         // ticker to long
-        assert!(OptionContract::from_dx_feed_symbol(".UPVTOOLONG230421C38").is_err());
+        assert!(OptionContract::from_dx_feed(".UPVTOOLONG230421C38").is_err());
     }
 
     #[test]
-    pub fn from_iso_format_bad_format() {
-        assert!(OptionContract::from_iso_format("").is_err());
+    pub fn from_osi_format_bad_format() {
+        assert!(OptionContract::from_osi("").is_err());
 
         // Missing strike
-        assert!(OptionContract::from_iso_format("UPV230421C").is_err());
+        assert!(OptionContract::from_osi("UPV230421C").is_err());
 
         // Malformed strike
-        assert!(OptionContract::from_iso_format("UPV230421C0003800").is_err());
+        assert!(OptionContract::from_osi("UPV230421C0003800").is_err());
 
         // Missing ticker
-        assert!(OptionContract::from_iso_format("230421C00038000").is_err());
+        assert!(OptionContract::from_osi("230421C00038000").is_err());
         // Bad expiry
-        assert!(OptionContract::from_iso_format("UPV231321C00038000").is_err());
+        assert!(OptionContract::from_osi("UPV231321C00038000").is_err());
         // Bad ticker
-        assert!(OptionContract::from_iso_format("UPVWAYTOOLONG230421C00038000").is_err());
+        assert!(OptionContract::from_osi("UPVWAYTOOLONG230421C00038000").is_err());
     }
 
     #[test]
-    pub fn from_iso_format() {
+    pub fn from_osi_format() {
         let file = File::open("./test_data/contracts.csv").unwrap();
         let reader = BufReader::new(file);
 
@@ -983,11 +1062,11 @@ mod tests {
             let bytes = option_symbol.as_bytes();
             let context = format!("Line {idx} contract {option_symbol} bytes {bytes:?}");
 
-            let contract = OptionContract::from_iso_format(option_symbol)
+            let contract = OptionContract::from_osi(option_symbol)
                 .context(context)
                 .unwrap();
 
-            assert_eq!(contract.to_iso(), option_symbol);
+            assert_eq!(contract.to_osi(), option_symbol);
             assert_eq!(contract.ticker(), splits[1]);
             assert_eq!(contract.strike(), Decimal::from_str(splits[2]).unwrap());
             assert_eq!(
@@ -1012,41 +1091,47 @@ mod tests {
 
     #[test]
     fn missing_strike() {
-        assert!(OptionContract::from_iso_format("AAPL231229P").is_err());
+        assert!(OptionContract::from_osi("AAPL231229P").is_err());
     }
 
     #[test]
     fn missing_ticker() {
-        assert!(OptionContract::from_iso_format("231229P00202500").is_err());
+        assert!(OptionContract::from_osi("231229P00202500").is_err());
     }
 
     #[test]
     fn missing_option_type() {
-        assert!(OptionContract::from_iso_format("AAPL23122900202500").is_err());
+        assert!(OptionContract::from_osi("AAPL23122900202500").is_err());
     }
 
     #[test]
     fn missing_expiry() {
-        assert!(OptionContract::from_iso_format("AAPLP00202500").is_err());
+        assert!(OptionContract::from_osi("AAPLP00202500").is_err());
     }
 
     #[test]
     fn bad_expiry() {
-        assert!(OptionContract::from_iso_format("AAPL231321P00202500").is_err());
-        assert!(OptionContract::from_iso_format("AAPL231399P00202500").is_err());
+        assert!(OptionContract::from_osi("AAPL231321P00202500").is_err());
+        assert!(OptionContract::from_osi("AAPL231399P00202500").is_err());
     }
 
     #[test]
     fn bad_option_type() {
-        assert!(OptionContract::from_iso_format("AAPL231229X00202500").is_err());
-        assert!(OptionContract::from_iso_format("AAPL231229100202500").is_err());
+        assert!(OptionContract::from_osi("AAPL231229X00202500").is_err());
+        assert!(OptionContract::from_osi("AAPL231229100202500").is_err());
     }
 
     #[test]
     fn bad_strike() {
-        assert!(OptionContract::from_iso_format("PANW250117P0X256670").is_err());
-        assert!(OptionContract::from_iso_format("PANW250117P00256670X").is_err());
-        assert!(OptionContract::from_iso_format("PANW250117P002566701").is_err());
-        assert!(OptionContract::from_iso_format("PANW250117P100256670").is_err());
+        assert!(OptionContract::from_osi("PANW250117P0X256670").is_err());
+        assert!(OptionContract::from_osi("PANW250117P00256670X").is_err());
+        assert!(OptionContract::from_osi("PANW250117P002566701").is_err());
+        assert!(OptionContract::from_osi("PANW250117P100256670").is_err());
+    }
+
+    #[test]
+    fn can_handle_osi_long() {
+        let contract = OptionContract::from_osi("PANW  250117P00256670").unwrap();
+        assert_eq!(contract.to_osi(), "PANW  250117P00256670");
     }
 }

@@ -28,6 +28,7 @@ optional = true
 [features]
 serde = ["dep:serde"]
 postgres = ["dep:postgres-types"]
+default = ["serde", "postgres"]
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
