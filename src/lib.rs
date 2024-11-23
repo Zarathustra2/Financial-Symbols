@@ -740,7 +740,7 @@ mod serde_feature {
 
     struct TickerVisitor;
 
-    impl<'de> Visitor<'de> for TickerVisitor {
+    impl<'de> Visitor<'_> for TickerVisitor {
         type Value = Ticker;
 
         fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -810,7 +810,7 @@ mod serde_feature {
 
     struct OptionContractVisitor;
 
-    impl<'de> Visitor<'de> for OptionContractVisitor {
+    impl<'de> Visitor<'_> for OptionContractVisitor {
         type Value = OptionContract;
 
         fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
