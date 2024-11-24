@@ -41,7 +41,7 @@ impl std::error::Error for TickerParseErr {}
 const TICKER_LENGTH: usize = 8;
 
 // TODO: We could save it in 6 bytes I think and map each ticker char to a number from 1 to 38 (alphabet + numbers + special chars)
-#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ticker {
     bytes: [u8; TICKER_LENGTH],
 }
@@ -80,6 +80,12 @@ impl Ticker {
 
     pub fn len(&self) -> usize {
         self.bytes[0] as usize
+    }
+}
+
+impl Debug for Ticker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Ticker({})", self.as_str())
     }
 }
 
@@ -957,6 +963,12 @@ mod tests {
     use anyhow::Context;
 
     use super::*;
+
+    #[test]
+    fn debug_ticker() {
+        let ticker = Ticker::from_str_unchecked("AAPL");
+        assert_eq!(format!("{:?}", ticker), "Ticker(AAPL)");
+    }
 
     #[test]
     pub fn can_parse_tickers() {
