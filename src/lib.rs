@@ -517,7 +517,8 @@ impl OptionContract {
             + (bytes[10] - b'0') as u32 * 10000
             + (bytes[11] - b'0') as u32 * 1000
             + (bytes[12] - b'0') as u32 * 100
-            + (bytes[13] - b'0') as u32 * 10;
+            + (bytes[13] - b'0') as u32 * 10
+            + (bytes[14] - b'0') as u32;
 
         Ok(Self {
             ticker,
@@ -1145,5 +1146,21 @@ mod tests {
     fn can_handle_osi_long() {
         let contract = OptionContract::from_osi("PANW  250117P00256670").unwrap();
         assert_eq!(contract.to_osi(), "PANW  250117P00256670");
+    }
+
+    #[test]
+    fn three_decimal_places() {
+        let s = "AAPL220617C00116251";
+        let contract = OptionContract::from_osi(s).unwrap();
+
+        assert_eq!(contract.ticker(), "AAPL");
+        assert_eq!(
+            contract.expiry(),
+            NaiveDate::from_str("2022-06-17").unwrap()
+        );
+        assert_eq!(contract.option_type(), OptionType::Call);
+        assert_eq!(contract.strike(), Decimal::from_str("116.251").unwrap());
+
+        assert_eq!(contract.to_osi(), s);
     }
 }
