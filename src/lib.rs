@@ -333,6 +333,18 @@ impl OptionContract {
         Decimal::from_i128_with_scale(self.strike as i128, 3).normalize()
     }
 
+    /// Returns the raw strike value in thousandths without decimal conversion.
+    ///
+    /// # Examples
+    /// ```
+    /// use financial_symbols::{OptionContract, OptionType};
+    /// let contract = OptionContract::from_osi("SPXW231127C03850000").unwrap();
+    /// assert_eq!(contract.strike_as_thousand(), 3850000);
+    /// ```
+    pub fn strike_as_thousand(&self) -> u32 {
+        self.strike
+    }
+
     /// Returns the expiry date of the contract
     /// # Examples
     /// ```
@@ -974,6 +986,31 @@ mod tests {
     #[test]
     pub fn can_parse_tickers() {
         let file = File::open("./test_data/tickers.txt").unwrap();
+        let reader = BufReader::new(file);
+
+        let mut set_str = HashSet::new();
+        let mut set_ticker = HashSet::new();
+
+        for (idx, line) in reader.lines().skip(1).enumerate() {
+            let s = line.unwrap();
+            let context = format!("Line {idx} ticker {s}");
+            let ticker = Ticker::try_from(s.as_str()).context(context).unwrap();
+            assert_eq!(ticker.as_str(), s.as_str());
+
+            let ticker_unchecked = Ticker::from_str_unchecked(s.as_str());
+            assert_eq!(ticker_unchecked.as_str(), s.as_str());
+            assert_eq!(ticker_unchecked, ticker);
+
+            set_str.insert(s.to_string());
+            set_ticker.insert(ticker);
+        }
+
+        assert_eq!(set_str.len(), set_ticker.len());
+    }
+
+    #[test]
+    pub fn can_parse_option_roots() {
+        let file = File::open("./test_data/option_roots.txt").unwrap();
         let reader = BufReader::new(file);
 
         let mut set_str = HashSet::new();
